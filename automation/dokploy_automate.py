@@ -666,6 +666,52 @@ def create_domain(url, cookies, compose_id, host, port, service_name):
         print(f"Error creating domain: {e}")
 
 
+def get_compose_domains(url, cookies, compose_id):
+    """Return the existing domain rows for a compose: [{domainId, host, ...}]."""
+    import urllib.parse
+    q = urllib.parse.quote(json.dumps({"0": {"json": {"composeId": compose_id}}}))
+    trpc_url = f"{url}/api/trpc/domain.byComposeId?batch=1&input={q}"
+    try:
+        resp = requests.get(trpc_url, cookies=cookies, timeout=15).json()
+        return resp[0]["result"]["data"]["json"] or []
+    except Exception as e:
+        print(f"Warning: could not list existing domains for {compose_id}: {e}")
+        return []
+
+
+def delete_domain(url, cookies, domain_id):
+    """Delete a single domain row by its domainId."""
+    trpc_url = f"{url}/api/trpc/domain.delete?batch=1"
+    payload = {"0": {"json": {"domainId": domain_id}}}
+    try:
+        request_with_retry("POST", trpc_url, json=payload, cookies=cookies, timeout=30)
+        return True
+    except Exception as e:
+        print(f"Error deleting domain {domain_id}: {e}")
+        return False
+
+
+def sync_domains(url, cookies, compose_id, desired):
+    """Make a compose's domains EXACTLY `desired` (list of (host, port, service)).
+
+    Dokploy's domain.create is not idempotent: calling it again on a redeploy
+    ADDS a second row for the same host, producing two Traefik routers with an
+    identical Host() rule. Traefik then binds the rule to a service
+    non-deterministically, so the app flaps between 200 and 404. We converge the
+    set every deploy: drop whatever exists for this compose, then create the
+    desired rows once. On a first deploy the delete loop is a no-op.
+    """
+    existing = get_compose_domains(url, cookies, compose_id)
+    if existing:
+        print(f"  reconciling domains: removing {len(existing)} existing row(s) before recreate")
+        for d in existing:
+            did = d.get("domainId")
+            if did:
+                delete_domain(url, cookies, did)
+    for host, port, service in desired:
+        create_domain(url, cookies, compose_id, host, port, service)
+
+
 def update_compose_file(url, cookies, compose_id, compose_content, source_type=None):
     """Update the docker-compose.yml content for a Compose application.
 
@@ -1584,18 +1630,14 @@ if __name__ == "__main__":
 
                 if "exposures" in cfg:
                     print(f"Setting up multiple domains for {cfg['name']}...")
-                    for exp in cfg["exposures"]:
-                        create_domain(
-                            url,
-                            cookies,
-                            cid,
-                            exp["domain"],
-                            exp["port"],
-                            exp["service"],
-                        )
+                    sync_domains(
+                        url, cookies, cid,
+                        [(e["domain"], e["port"], e["service"]) for e in cfg["exposures"]],
+                    )
                 elif "domain" in cfg:
-                    create_domain(
-                        url, cookies, cid, cfg["domain"], cfg["port"], cfg["service"]
+                    sync_domains(
+                        url, cookies, cid,
+                        [(cfg["domain"], cfg["port"], cfg["service"])],
                     )
 
                 # Resolve the deployed app dir name once. Used both to push a
