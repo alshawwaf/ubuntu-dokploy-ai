@@ -40,6 +40,7 @@ DOMAIN="${ROOT_DOMAIN:-}"
 ADMIN_EMAIL="${DOKPLOY_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${DOKPLOY_ADMIN_PASSWORD:-}"
 SKIP_HARDEN="${SKIP_HARDEN:-0}"
+SKIP_DOCKER="${SKIP_DOCKER:-0}"   # --skip-docker: don't install/reconfigure Docker (assume it's managed)
 SKIP_DNS_CHECK="${SKIP_DNS_CHECK:-0}"
 DNS_WARN_ONLY="${DNS_WARN_ONLY:-0}"
 CLEAN=""
@@ -615,6 +616,7 @@ while [ "$#" -gt 0 ]; do
     --admin-password)  ADMIN_PASSWORD="$2"; shift 2 ;;
     --store)           STORE="$2"; shift 2 ;;
     --skip-harden)     SKIP_HARDEN=1; shift ;;
+    --skip-docker)     SKIP_DOCKER=1; shift ;;
     --skip-dns-check)  SKIP_DNS_CHECK=1; shift ;;
     --dns-warn-only)   DNS_WARN_ONLY=1; shift ;;
     --ingress)         INGRESS_MODE="$2"; shift 2 ;;
@@ -1068,18 +1070,27 @@ fi
 # 4. Docker + Dokploy (idempotent)
 # ---------------------------------------------------------------------------
 step "Docker engine"
-if command -v docker >/dev/null 2>&1; then
-  log "Docker already present: $(docker --version)"
+if [ "$SKIP_DOCKER" = "1" ]; then
+  # --skip-docker: the operator manages Docker themselves. Require it to exist,
+  # and leave daemon.json alone (rewriting + restarting their Docker would be
+  # rude / disruptive).
+  command -v docker >/dev/null 2>&1 \
+    || die "--skip-docker set but Docker is not installed. Install Docker first, or drop --skip-docker to let this script install it."
+  log "Docker install + daemon.json skipped (--skip-docker); using existing $(docker --version)."
+  warn "with --skip-docker, ensure Docker's default-address-pools avoid your admin LAN (e.g. 192.168.x) — see docs/operations.md, or a stray bridge can black-hole SSH."
 else
-  curl -fsSL https://get.docker.com | sh
-fi
-# Pin Docker's user-network address pools BEFORE Dokploy creates the swarm and
-# the app networks. Docker's built-in pools run 172.17–172.31/16 and then SPILL
-# into 192.168.0.0/16 — which collides with common management/home LANs
-# (192.168.x) once ~16 compose networks exist, and can black-hole the host's OWN
-# SSH (a Docker bridge steals the route to the admin's subnet). Pin to
-# 10.201/10.202.0.0/16 in /24s (512 networks), clear of 172/192.168/most LANs.
-if python3 - /etc/docker/daemon.json <<'PYEOF'
+  if command -v docker >/dev/null 2>&1; then
+    log "Docker already present: $(docker --version)"
+  else
+    curl -fsSL https://get.docker.com | sh
+  fi
+  # Pin Docker's user-network address pools BEFORE Dokploy creates the swarm and
+  # the app networks. Docker's built-in pools run 172.17–172.31/16 and then SPILL
+  # into 192.168.0.0/16 — which collides with common management/home LANs
+  # (192.168.x) once ~16 compose networks exist, and can black-hole the host's OWN
+  # SSH (a Docker bridge steals the route to the admin's subnet). Pin to
+  # 10.201/10.202.0.0/16 in /24s (512 networks), clear of 172/192.168/most LANs.
+  if python3 - /etc/docker/daemon.json <<'PYEOF'
 import json, os, sys
 p = sys.argv[1]
 pools = [{"base": "10.201.0.0/16", "size": 24}, {"base": "10.202.0.0/16", "size": 24}]
@@ -1094,11 +1105,12 @@ os.makedirs(os.path.dirname(p), exist_ok=True)
 json.dump(d, open(p, "w"), indent=2)
 sys.exit(0)                           # changed -> caller restarts docker
 PYEOF
-then
-  log "pinned Docker address pools -> 10.201/10.202.0.0/16 (prevents 192.168.x LAN collisions)"
-  _run systemctl restart docker || warn "could not restart docker after writing daemon.json"
-else
-  log "Docker address pools already pinned to 10.x."
+  then
+    log "pinned Docker address pools -> 10.201/10.202.0.0/16 (prevents 192.168.x LAN collisions)"
+    _run systemctl restart docker || warn "could not restart docker after writing daemon.json"
+  else
+    log "Docker address pools already pinned to 10.x."
+  fi
 fi
 
 step "Dokploy platform"

@@ -107,6 +107,8 @@ The app catalog, domains, and ports live in [`automation/dokploy_config.json`](a
 - **Ubuntu 22.04 / 24.04 LTS**, with root (the installer runs `sudo bash`).
 - A **domain you control**.
 
+**That's the whole list.** You do **not** install Docker or anything else first — the script installs the Docker engine, the OS/Python packages, Dokploy, and every dependency itself, then deploys and verifies the stack. Install Ubuntu Server, run the one command, done. (The only tool the *one-liner* itself needs is `curl`, which ships with Ubuntu Server; if it's missing, use the `wget` form: `wget -qO- https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com`. Already manage Docker yourself? Add `--skip-docker` and the script leaves it alone.)
+
 The rest depends on your ingress mode.
 
 ### Public inbound: Let's Encrypt (default)
@@ -159,7 +161,7 @@ The installer runs the whole pipeline on the box, in order. It is a fixed **14-s
 1. **Preflight** — root/OS check; locate the repo (or clone it if piped via `curl`); resolve the domain and ingress inputs.
 2. **Base packages** — Ubuntu packages for the Python deps (`python3-requests`, `python3-paramiko`, `python3-yaml`) plus `git`, `ufw`, `fail2ban`, `unattended-upgrades` — installed from apt, so no PyPI/pip is needed. Also detects the public IP and WAN interface.
 3. **Base firewall** — `ufw` default-deny, allowing `22/80/443` inbound (or **only `22`** in `--ingress tunnel` mode, since the tunnel dials out and needs no public inbound). See [Security](#security).
-4. **Docker engine** — installed if absent (`get.docker.com`), then Docker's user-network **address pools are pinned to `10.201/10.202.0.0/16`** via `/etc/docker/daemon.json`. Docker's built-in pools run `172.17`–`172.31` and then spill into `192.168.0.0/16` once ~16 compose networks exist — which collides with a `192.168.x` management LAN and can black-hole the host's own SSH (a Docker bridge steals the route to the admin subnet). Pinning to `10.x` keeps every app network clear of common LANs.
+4. **Docker engine** — installed if absent (`get.docker.com`), then Docker's user-network **address pools are pinned to `10.201/10.202.0.0/16`** via `/etc/docker/daemon.json`. Docker's built-in pools run `172.17`–`172.31` and then spill into `192.168.0.0/16` once ~16 compose networks exist — which collides with a `192.168.x` management LAN and can black-hole the host's own SSH (a Docker bridge steals the route to the admin subnet). Pinning to `10.x` keeps every app network clear of common LANs. Pass `--skip-docker` to skip this step entirely and use an existing engine untouched.
 5. **Dokploy platform** — installed if absent (`dokploy.com/install.sh`).
 6. **Traefik hubframe middleware** — a Traefik `hubframe` headers middleware (removes `X-Frame-Options`, sets a permissive `frame-ancestors` CSP), attached as a default middleware on the web/websecure entrypoints so every app can embed in the Dev Hub desktop.
 7. **Host hardening** — the `DOCKER-USER` iptables chain (forces all app ports through Traefik on the auto-detected WAN interface), `fail2ban` (SSH jail), unattended security upgrades, root-key-only sshd, and a baseline user/`authorized_keys` audit. Skip with `--skip-harden`.
@@ -358,6 +360,7 @@ Database ports bind to `127.0.0.1` only — never `0.0.0.0`. Services talk over 
 | `--store <path>` | Secret store path (default `/etc/dokploy-ai/secrets.env`) |
 | `--ingress <mode>` | `letsencrypt` (default; public inbound + HTTP-01) or `tunnel` (Cloudflare Tunnel, no public inbound) |
 | `--skip-harden` | Skip host hardening |
+| `--skip-docker` | Don't install or reconfigure Docker — use the engine already on the host (fails if none). Also leaves `daemon.json` untouched |
 | `--skip-dns-check` | Deploy even if DNS isn't ready (certs may not issue; ignored in tunnel mode) |
 | `--dns-warn-only` | Report DNS problems but continue |
 | `--clean` | Tear down existing project/servers before redeploying |
