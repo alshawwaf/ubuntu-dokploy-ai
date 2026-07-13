@@ -247,6 +247,22 @@ _stream() {
   fi
 }
 
+# Run a slow, SILENT command (e.g. `docker image prune`) while keeping the
+# dashboard's step-timer + spinner ANIMATING, so it never looks frozen. A
+# background ticker repaints ~1/s while the foreground is blocked in the
+# command — no terminal race, because the foreground isn't drawing meanwhile.
+# The command's own output is discarded; pair it with a log() line first to
+# give the activity panel context. Falls back to a plain silent run.
+_run() {
+  if [ "$UI_RICH" != 1 ]; then "$@" >/dev/null 2>&1; return $?; fi
+  ( while :; do _ui_render; sleep 1; done ) &
+  local _tk=$!
+  "$@" >/dev/null 2>&1; local _rc=$?
+  kill "$_tk" 2>/dev/null || true; wait "$_tk" 2>/dev/null || true
+  _ui_render
+  return "$_rc"
+}
+
 # ---- unified step / log / warn ------------------------------------------
 step() {
   _step_close
@@ -466,8 +482,9 @@ run_uninstall() {
   # after a short retry — i.e. the end state is actually dirty.
   if command -v docker >/dev/null 2>&1 && docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
     local _t
+    log "leaving the Docker swarm (draining services)…"
     for _t in 1 2 3; do
-      docker swarm leave --force >/dev/null 2>&1 || true
+      _run docker swarm leave --force || true
       docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active || break
       sleep 2
     done
@@ -489,7 +506,8 @@ run_uninstall() {
     for _p in 1 2 3; do
       _ids="$( docker ps -aq 2>/dev/null || true )"
       [ -z "$_ids" ] && break
-      printf '%s\n' "$_ids" | xargs -r docker rm -f >/dev/null 2>&1 || true
+      log "force-removing $(printf '%s\n' "$_ids" | grep -c .) container(s)…"
+      _run sh -c 'printf "%s\n" "$1" | xargs -r docker rm -f' _ "$_ids" || true
       sleep 1
     done
     _ids="$( docker ps -aq 2>/dev/null || true )"
@@ -508,10 +526,11 @@ run_uninstall() {
     for _q in 1 2; do
       _vols="$( docker volume ls -q 2>/dev/null || true )"
       [ -z "$_vols" ] && break
-      printf '%s\n' "$_vols" | xargs -r docker volume rm -f >/dev/null 2>&1 || true
+      log "removing $(printf '%s\n' "$_vols" | grep -c .) volume(s)…"
+      _run sh -c 'printf "%s\n" "$1" | xargs -r docker volume rm -f' _ "$_vols" || true
       sleep 1
     done
-    docker network prune -f >/dev/null 2>&1 || true
+    _run docker network prune -f || true
     _vols="$( docker volume ls -q 2>/dev/null || true )"
     if [ -n "$_vols" ]; then
       warn "$(printf '%s\n' "$_vols" | grep -c .) volume(s) could not be removed."
@@ -527,8 +546,9 @@ run_uninstall() {
   else
     step "Removing Docker images"
     if command -v docker >/dev/null 2>&1; then
-      docker image prune -af >/dev/null 2>&1 || warn "image prune reported errors."
-      docker builder prune -af >/dev/null 2>&1 || true
+      log "pruning all images + build cache — this can take a while on a full box…"
+      _run docker image prune -af || warn "image prune reported errors."
+      _run docker builder prune -af || true
       log "images + build cache removed."
     else
       log "docker not installed — nothing to remove."
@@ -551,6 +571,7 @@ run_uninstall() {
 
   step "Cloudflare cleanup (tunnel + DNS)"
   if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+    log "deleting the Cloudflare tunnel + its DNS records via the API…"
     if CF_TOKEN="$CLOUDFLARE_API_TOKEN" CF_ACCOUNT="$CLOUDFLARE_ACCOUNT_ID" \
        CF_DOMAIN="$DOMAIN" CF_TUNNEL_NAME="$CLOUDFLARE_TUNNEL_NAME" CF_UUID="$TUNNEL_UUID" \
        python3 - <<'PYCF'
