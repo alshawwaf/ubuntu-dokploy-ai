@@ -192,7 +192,10 @@ Either way:
 
 - The **full raw output** of every command is tee'd to **`/var/log/dokploy-ai-install.log`** (override with `RUN_LOG=<path>`), so nothing is lost even though the live panel only shows the tail.
 - The run ends with a **run-summary table** (per-step status + duration) and any warnings collected along the way — a warned-but-complete run is called out honestly rather than reported as clean.
-- On failure the ERR trap names the failing step, elapsed time, and exit code, then lists the warnings up to that point.
+- On failure the ERR trap marks the failing step red and names it with the elapsed time, exit code, and warnings up to that point.
+- **The final view is held on screen until you press a key** — on success *and* failure. The dashboard lives on the terminal's alternate screen, so instead of it vanishing the moment the script exits, the finished board/checklist (which apps came up, exactly where a failure landed) stays up until *you* choose to close it, then a summary is printed to your scrollback. `Ctrl-C` exits cleanly with an "interrupted at step N" note. With no TTY (piped output / `nohup`) the hold is skipped, so unattended runs never block.
+
+> **Tip — long runs over SSH:** run the installer inside `tmux` (or `nohup`) so a dropped SSH session can't kill it mid-deploy: `tmux new -s deploy` then run `./install.sh …` inside; detach with `Ctrl-b d`, reattach with `tmux attach -t deploy`.
 
 **Per-app verification.** The deploy waves don't just declare success — [`verify_deployment.py`](automation/utils/verify_deployment.py) waits for Dokploy's asynchronous builds to finish and cross-checks reality: for each app it polls the compose deployment status (`idle → running → done`/`error`) **and** inspects the real Docker containers (running / healthy / unhealthy). In `--board` mode it feeds the live app board; it self-ticks the dashboard clock ~1×/s regardless of output, and ends with a per-app table plus a non-zero exit if anything failed or timed out. Tune the heavy-wave wait with `VERIFY_TIMEOUT` (default `2700`s = 45m), the core-wave wait with `VERIFY_CORE_TIMEOUT` (default `900`s = 15m), and the poll cadence with `VERIFY_INTERVAL` (default `3`s).
 
@@ -410,6 +413,7 @@ Set by `install.sh`; useful for laptop runs too.
 | `DEV_HUB_COMPOSE_PATH` | Rendered dev-hub compose (secret-filled) to deploy |
 | `AGENTIC_COMPOSE_PATH` | Path to the cloned agentic playground compose |
 | `NO_RICH_UI` | Set to `1` to force plain output (same as `--plain`) |
+| `HOLD` / `UI_HOLD_TIMEOUT` | `HOLD=0` skips the "press a key to close" hold at the end; `UI_HOLD_TIMEOUT` bounds it (default `600`s). Auto-skipped in CI / when there's no TTY |
 | `RUN_LOG` | Install log path (default `/var/log/dokploy-ai-install.log`) |
 | `VERIFY_TIMEOUT` / `VERIFY_CORE_TIMEOUT` / `VERIFY_INTERVAL` | Heavy-wave / core-wave verification timeout and poll interval (defaults `2700`s / `900`s / `3`s) |
 | `CLOUDFLARE_API_TOKEN` | *(tunnel)* Cloudflare API token; scopes: Account>Cloudflare Tunnel>Edit, Zone>DNS>Edit, Zone>Zone>Read |

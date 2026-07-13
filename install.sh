@@ -77,6 +77,7 @@ RUN_T0="$(date +%s)"
 STEP_TOTAL=14
 STEP_NO=0
 STEP_DONE=0
+STEP_CLOSED=0
 STEP_TITLE=""
 STEP_T0="$RUN_T0"
 STEP_STATUS="done"
@@ -119,6 +120,8 @@ _elapsed() { _set_elapsed _EL; printf '%s' "$_EL"; }
 
 _step_close() {
   [ "$STEP_NO" -eq 0 ] && return 0
+  [ "${STEP_CLOSED:-0}" = "$STEP_NO" ] && return 0   # idempotent — never double-close a step
+  STEP_CLOSED=$STEP_NO
   local secs=$(( $(date +%s) - STEP_T0 ))
   STEP_LINES+=("$(printf '%2d|%s|%s|%ss' "$STEP_NO" "$STEP_TITLE" "$STEP_STATUS" "$secs")")
   STEP_DONE=$((STEP_DONE+1))
@@ -320,6 +323,7 @@ _ui_render() {
         done)    icon="${E}[38;5;120m✔${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;240m${sec}${E}[0m" ;;
         running) icon="${E}[1;38;5;213m${_SPINCH}${E}[0m"; col="${E}[1;97m"; _set_elapsed _ELS "$STEP_T0"; sec="${E}[38;5;213m${_ELS}${E}[0m" ;;
         warn)    icon="${E}[38;5;214m▲${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;214m${sec}${E}[0m" ;;
+        fail)    icon="${E}[1;38;5;203m✖${E}[0m"; col="${E}[1;38;5;203m"; sec="${E}[38;5;203mfailed${E}[0m" ;;
         skip)    icon="${E}[38;5;244m⤼${E}[0m"; col="${E}[38;5;244m"; sec="${E}[38;5;240mskipped${E}[0m" ;;
         *)       icon="${E}[38;5;238m○${E}[0m"; col="${E}[38;5;242m"; sec="" ;;
       esac
@@ -353,6 +357,25 @@ _ui_reset() {
     printf '\033[?25h\033[?1049l'         # show cursor, leave alt screen (scrollback restored)
     UI_ALT=0
   fi
+  stty echo </dev/tty 2>/dev/null || true  # _ui_hold's `read -s` can leave echo OFF if a signal cut the read short
+}
+# Keep the final dashboard on screen until the operator presses a key, so the end
+# state (which apps came up, which step failed) never just vanishes when the alt
+# screen is torn down. A footer prompt is written to the bottom row. Interactive
+# only: with no controlling TTY (nohup / piped output) it's a no-op, so unattended
+# runs never hang. A long timeout is a safety net for a walk-away run.
+_ui_hold() {
+  [ "${UI_ALT:-0}" = 1 ] || return 0
+  # A pty alone (docker run -t, script/unbuffer, some CI) is NOT a human — never
+  # block those. Honor CI markers + an explicit HOLD=0 opt-out, and bound the
+  # walk-away wait (UI_HOLD_TIMEOUT, default 10m) so nothing stalls for an hour.
+  [ -n "${CI:-}${GITHUB_ACTIONS:-}${NONINTERACTIVE:-}" ] && return 0
+  [ "${HOLD:-1}" = 0 ] && return 0
+  [ -t 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+  local msg="${1:-  \033[1;38;5;219m▸ press any key to close this view…\033[0m}"
+  printf '\033[%d;1H\033[K%b' "${UI_ROWS:-24}" "$msg" >/dev/tty 2>/dev/null || true
+  read -rsn1 -t "${UI_HOLD_TIMEOUT:-600}" _ </dev/tty 2>/dev/null || true
+  return 0
 }
 _ui_winch() { [ "$UI_RICH" = 1 ] || return 0; _ui_size; printf '\033[2J'; _ui_render; }
 _elapsed_since() { _set_elapsed _ELS "${1:-$RUN_T0}"; printf '%s' "$_ELS"; }
@@ -549,17 +572,36 @@ print_step_table() {
 
 _on_err() {
   local code=$?
+  # Mark the running step failed, repaint, and HOLD the final frame so the
+  # failure point stays on screen — the operator closes it with a keypress —
+  # then leave the alt screen and print a persistent banner to the scrollback.
+  if [ "${UI_RICH:-0}" = 1 ] && [ "${UI_ALT:-0}" = 1 ]; then
+    if [ "${STEP_NO:-0}" -gt 0 ]; then STEP_ST[$STEP_NO]="fail"; fi
+    _ui_render
+    _ui_hold "  \033[48;5;52;1;97m ✖ FAILED \033[0m \033[1;38;5;203mstep ${STEP_NO}/${STEP_TOTAL} (${STEP_TITLE:-preflight})\033[0m \033[38;5;244mexit ${code}\033[0m  \033[38;5;219m▸ press any key to close…\033[0m"
+  fi
   _ui_reset
   printf '\n\033[48;5;52;1;97m ✖ FAILED \033[0m \033[1;38;5;203mstep %d/%d (%s)\033[0m \033[38;5;244mafter %s · exit %d\033[0m\n' \
     "$STEP_NO" "$STEP_TOTAL" "${STEP_TITLE:-preflight}" "$(_elapsed)" "$code" >&2
+  printf '\033[38;5;244mfull log: %s\033[0m\n' "${RUN_LOG:-/var/log/dokploy-ai-install.log}" >&2
   if [ "${#WARNINGS[@]}" -gt 0 ]; then
     printf '\033[1;38;5;214mwarnings up to the failure:\033[0m\n' >&2
     local w; for w in "${WARNINGS[@]}"; do printf '  \033[38;5;214m▲\033[0m %s\n' "$w" >&2; done
   fi
   exit "$code"
 }
+# Ctrl-C / SIGTERM: the operator is choosing to stop — leave the alt screen
+# cleanly and say where we were, instead of vanishing with no trace.
+_on_signal() {
+  trap - INT TERM
+  _ui_reset
+  printf '\n\033[38;5;214m▲ interrupted at step %d/%d (%s)\033[0m — nothing was rolled back; re-run to continue or use --uninstall.\n' \
+    "${STEP_NO:-0}" "$STEP_TOTAL" "${STEP_TITLE:-}" >&2
+  exit 130
+}
 trap _ui_reset EXIT
 trap _on_err ERR
+trap _on_signal INT TERM
 trap _ui_winch WINCH
 
 # ---------------------------------------------------------------------------
@@ -1442,6 +1484,12 @@ else
                         ssh -L 3000:localhost:3000 root@$PUBLIC_IP"
 fi
 
+# Hold the finished dashboard (all steps done, every app on the board) until the
+# operator presses a key, so the success state doesn't vanish on exit; then drop
+# out of the alt screen and print the summary into the scrollback.
+_step_close
+_ui_render
+_ui_hold "  \033[1;38;5;120m✔ provisioning complete\033[0m  \033[38;5;219m▸ press any key to close this view…\033[0m"
 print_step_table
 
 cat <<SUMMARY
