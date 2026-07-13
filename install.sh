@@ -129,21 +129,32 @@ SPIN_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)   # array (multibyte-safe;
 SPIN_I=0
 UI_ALT=0
 
-_ui_rule() { local w="$1" i out=""; for ((i=0;i<w;i++)); do out="${out}─"; done; printf '%s' "$out"; }
+declare -A _RULE_CACHE
+_ui_rule() {   # memoized: a rule of a given width is built once, reused every render
+  local w="$1"
+  if [ -z "${_RULE_CACHE[$w]:-}" ]; then
+    local i out=""; for ((i=0;i<w;i++)); do out="${out}─"; done; _RULE_CACHE[$w]="$out"
+  fi
+  printf '%s' "${_RULE_CACHE[$w]}"
+}
 _os_short() { ( . /etc/os-release 2>/dev/null || true; printf '%s %s' "${NAME:-Linux}" "${VERSION_ID:-}" ); }
 _spin() { SPIN_I=$(( (SPIN_I+1) % ${#SPIN_FRAMES[@]} )); printf '%s' "${SPIN_FRAMES[$SPIN_I]}"; }
-_ui_grad_bar() {
-  local done="$1" total="$2" width="$3" fill i ci out=""
-  local ramp=(57 63 99 135 171 207 213 219); local n=${#ramp[@]}
-  if [ "$total" -gt 0 ]; then fill=$(( done*width/total )); else fill=0; fi
-  out='\033[38;5;239m▕'
-  for ((i=0;i<width;i++)); do
-    if [ "$i" -lt "$fill" ]; then
-      ci=$(( i*n/width )); [ "$ci" -ge "$n" ] && ci=$((n-1))
-      out="${out}\033[38;5;${ramp[$ci]}m█"
-    else out="${out}\033[38;5;238m░"; fi
-  done
-  printf '%b' "${out}\033[38;5;239m▏\033[0m"
+_BAR_KEY=""; _BAR_STR=""
+_ui_grad_bar() {   # memoized: only rebuilt when progress or width changes
+  local done="$1" total="$2" width="$3" key="$1|$2|$3"
+  if [ "$key" != "$_BAR_KEY" ]; then
+    local fill i ci out='\033[38;5;239m▕'
+    local ramp=(57 63 99 135 171 207 213 219); local n=${#ramp[@]}
+    if [ "$total" -gt 0 ]; then fill=$(( done*width/total )); else fill=0; fi
+    for ((i=0;i<width;i++)); do
+      if [ "$i" -lt "$fill" ]; then
+        ci=$(( i*n/width )); [ "$ci" -ge "$n" ] && ci=$((n-1))
+        out="${out}\033[38;5;${ramp[$ci]}m█"
+      else out="${out}\033[38;5;238m░"; fi
+    done
+    _BAR_KEY="$key"; _BAR_STR="${out}\033[38;5;239m▏\033[0m"
+  fi
+  printf '%b' "$_BAR_STR"
 }
 _ui_size() {
   UI_ROWS="$( tput lines 2>/dev/null || echo "${LINES:-24}" )"
@@ -258,7 +269,7 @@ _stream() {
 # give the activity panel context. Falls back to a plain silent run.
 _run() {
   if [ "$UI_RICH" != 1 ]; then "$@" >/dev/null 2>&1; return $?; fi
-  ( while :; do _ui_render; sleep 1; done ) &
+  ( while :; do _ui_render; sleep 0.5; done ) &
   local _tk=$!
   "$@" >/dev/null 2>&1; local _rc=$?
   kill "$_tk" 2>/dev/null || true; wait "$_tk" 2>/dev/null || true
