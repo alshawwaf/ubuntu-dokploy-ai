@@ -1,0 +1,23 @@
+# Dokploy override for PolicyPilot: app service only. The repo's own compose
+# bundles a Caddy on 80/443 for standalone hosting, which would collide with
+# Traefik here — Traefik terminates TLS via the Dokploy domain entry instead.
+# Secrets come from the rendered .env (bootstrap_secrets.py).
+services:
+  policypilot:
+    build: .
+    environment:
+      - PILOT_BASE_URL=${PILOT_BASE_URL}
+      - PILOT_SESSION_SECRET=${PILOT_SESSION_SECRET}
+      # Independent from the session secret so rotating it never orphans stored credentials.
+      - PILOT_ENCRYPTION_KEY=${PILOT_ENCRYPTION_KEY}
+      - PILOT_ADMIN_USERNAME=${PILOT_ADMIN_USERNAME:-admin}
+      - PILOT_ADMIN_PASSWORD=${PILOT_ADMIN_PASSWORD}
+      - PILOT_DATABASE_URL=sqlite:////data/policypilot.db
+      # One reverse-proxy hop (Traefik) in front, same as the repo's Caddy setup.
+      - PILOT_TRUSTED_PROXY_HOPS=1
+    volumes:
+      - policypilot-data:/data
+    restart: unless-stopped
+
+volumes:
+  policypilot-data:

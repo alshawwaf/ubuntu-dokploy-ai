@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  dev-hub-db-service:
+    image: postgres:15-alpine
+    container_name: dev_hub_db
+    restart: always
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=${DEV_HUB_DB_PASSWORD}
+      - POSTGRES_DB=dev_hub
+    volumes:
+      - dev_hub_db_data:/var/lib/postgresql/data
+    networks:
+      - dev-hub-net
+
+  dev-hub-backend:
+    build: ./backend
+    container_name: dev_hub_backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://admin:${DEV_HUB_DB_PASSWORD}@dev_hub_db:5432/dev_hub
+      - SECRET_KEY=${DEV_HUB_SECRET_KEY}
+      - DOMAIN={{DOMAIN}}
+      - SUPERADMIN_EMAIL=admin@{{DOMAIN}}
+      - SUPERADMIN_PASSWORD=${DEV_HUB_SUPERADMIN_PASSWORD}
+      # Shared agent MCP bearer token — dev-hub seeds an API key from it so the
+      # cp-agentic n8n agent (which imports the same DEVHUB_MCP_TOKEN value) can
+      # call dev-hub's MCP endpoint. Injected via the rendered compose, matching
+      # how every other dev-hub secret is delivered (this app has no env_file).
+      - DEVHUB_MCP_TOKEN=${DEVHUB_MCP_TOKEN}
+    depends_on:
+      - dev-hub-db-service
+    networks:
+      - dev-hub-net
+
+  dev-hub-frontend:
+    build: ./frontend
+    container_name: dev_hub_frontend
+    restart: always
+    depends_on:
+      - dev-hub-backend
+    networks:
+      - dev-hub-net
+
+networks:
+  dev-hub-net:
+    driver: bridge
+
+volumes:
+  dev_hub_db_data:

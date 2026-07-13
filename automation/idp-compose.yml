@@ -1,0 +1,43 @@
+services:
+  idp:
+    image: ghcr.io/alshawwaf/saml_idp_simulator:latest
+    build:
+      context: https://github.com/alshawwaf/SAML_IDP_Simulator.git
+      dockerfile: Dockerfile
+    container_name: idp
+    restart: unless-stopped
+    environment:
+      - ADMIN_USERNAME=admin@{{DOMAIN}}
+      - ADMIN_PASSWORD=${IDP_ADMIN_PASSWORD}
+      - SECRET_KEY=${IDP_SECRET_KEY}
+      # SCIM provisioning: seed a KNOWN inbound token so the cp-agentic SCIM
+      # agent authenticates with no manual copy (same value on both sides).
+      - ENABLE_SCIM=true
+      - IDP_SCIM_TOKEN=${IDP_SCIM_TOKEN}
+      - IDP_HOST=0.0.0.0
+      - IDP_PORT=5000
+      - ENABLE_SSL=false
+      - FLASK_DEBUG=0
+      - CERT_PATH=/app/app/certs/idp-cert.pem
+      - KEY_PATH=/app/app/certs/idp-key.pem
+    volumes:
+      - saml_idp_data:/app/data
+      - saml_idp_certs:/app/app/certs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.idp.rule=Host(`idp.{{DOMAIN}}`)"
+      - "traefik.http.routers.idp.entrypoints=websecure"
+      - "traefik.http.routers.idp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.idp.loadbalancer.server.port=5000"
+    networks:
+      - dokploy-network
+
+volumes:
+  # volume names intentionally keep the legacy saml_idp_ prefix so a
+  # redeploy on an existing box reuses the live data
+  saml_idp_data:
+  saml_idp_certs:
+
+networks:
+  dokploy-network:
+    external: true

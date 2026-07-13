@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environment files with secrets
+.env
+answers.env
+automation/envs/.env_*
+!automation/envs/.env_*.example
+
+# Rendered artifacts containing generated secrets (never commit)
+automation/dev_hub_compose.rendered.yml
+secrets.env
+
+# Terraform (not used in this project)
+*.tfstate
+*.tfstate.backup
+*.tfvars
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

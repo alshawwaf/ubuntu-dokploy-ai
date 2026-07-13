@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  openclaw-gateway:
+    image: ghcr.io/openclaw/openclaw:latest
+    pull_policy: always
+    container_name: openclaw-gateway
+    restart: unless-stopped
+    # Seed gateway.controlUi.allowedOrigins before starting so the Control UI works when
+    # embedded in the dev-hub desktop (iframe src = claw.{{DOMAIN}}). OpenClaw only accepts
+    # public browser origins that are explicitly allow-listed, and there is no env/flag for
+    # it — only the config file — so patch it on every start (idempotent; survives redeploys
+    # and self-heals a wiped config volume). config patch --stdin creates the file if absent.
+    command:
+      - sh
+      - -c
+      - |
+        printf '%s' '{"gateway":{"controlUi":{"allowedOrigins":["https://claw.{{DOMAIN}}","https://hub.{{DOMAIN}}"]}}}' \
+          | node dist/index.js config patch --stdin || true
+        exec node dist/index.js gateway --port 18789 --bind lan --auth token --allow-unconfigured
+    environment:
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+      - OPENCLAW_TZ=${OPENCLAW_TZ:-UTC}
+    volumes:
+      - openclaw-config:/home/node/.openclaw
+      - openclaw-workspace:/home/node/.openclaw/workspace
+    networks:
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openclaw-web.rule=Host(`claw.{{DOMAIN}}`)"
+      - "traefik.http.routers.openclaw-web.entryPoints=web"
+      - "traefik.http.routers.openclaw-web.middlewares=redirect-to-https@file"
+      - "traefik.http.routers.openclaw-websecure.rule=Host(`claw.{{DOMAIN}}`)"
+      - "traefik.http.routers.openclaw-websecure.entryPoints=websecure"
+      - "traefik.http.routers.openclaw-websecure.tls=true"
+      - "traefik.http.routers.openclaw-websecure.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openclaw.loadbalancer.server.port=18789"
+
+  openclaw-cli:
+    image: ghcr.io/openclaw/openclaw:latest
+    pull_policy: always
+    container_name: openclaw-cli
+    restart: unless-stopped
+    command: node dist/index.js agent
+    environment:
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENCLAW_TZ=${OPENCLAW_TZ:-UTC}
+    volumes:
+      - openclaw-config:/home/node/.openclaw
+      - openclaw-workspace:/home/node/.openclaw/workspace
+    networks:
+      - dokploy-network
+    depends_on:
+      - openclaw-gateway
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  openclaw-config:
+  openclaw-workspace:

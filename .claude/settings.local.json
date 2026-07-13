@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh auth status:*)",
+      "Bash(git checkout:*)",
+      "Bash(cygpath:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: add n8n healthcheck and service_healthy dependency for provisioner\n\nThe n8n-provision container was starting before n8n was ready to accept\nAPI requests, causing exit code 1 failures. This adds a healthcheck to\nthe n8n service and makes n8n-provision wait for service_healthy.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git config:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(curl:*)",
+      "Bash(python automation/dokploy_automate.py:*)"
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+# Dokploy override for Drawbridge (Datacenter Simulator): app service only.
+# The repo's own compose bundles a Caddy on 80/443 (and 9440 for Nutanix),
+# which would collide with Traefik here — Traefik terminates TLS via the
+# Dokploy domain entry instead. Secrets come from the rendered .env.
+#
+# Known limitations vs the standalone deployment:
+# - Syslog 5514 (Check Point Log Exporter target) is published below, but the
+#   host firewall (ufw + DOCKER-USER chain) blocks non-80/443 by default —
+#   allow it explicitly if the SIEM feature is needed: ufw allow 5514
+# - Nutanix Prism (CloudGuard hardcodes :9440 TLS) is not routed; needs a
+#   dedicated Traefik entrypoint or a direct publish + firewall allowance.
+services:
+  drawbridge:
+    build: .
+    environment:
+      - DCSIM_BASE_URL=${DCSIM_BASE_URL}
+      - DCSIM_SESSION_SECRET=${DCSIM_SESSION_SECRET}
+      - DCSIM_ENCRYPTION_KEY=${DCSIM_ENCRYPTION_KEY}
+      - DCSIM_ADMIN_USERNAME=${DCSIM_ADMIN_USERNAME:-admin}
+      - DCSIM_ADMIN_PASSWORD=${DCSIM_ADMIN_PASSWORD}
+      - DCSIM_DATABASE_URL=sqlite:////data/dcsim.db
+      # SIEM receiver port (Log Exporter target). 0 disables the listener.
+      - DCSIM_SYSLOG_PORT=${DCSIM_SYSLOG_PORT:-5514}
+    ports:
+      # Raw syslog/CEF/LEEF isn't HTTP, so it bypasses Traefik and is published
+      # straight from the app (see firewall note above).
+      - "${DCSIM_SYSLOG_PORT:-5514}:${DCSIM_SYSLOG_PORT:-5514}/udp"
+      - "${DCSIM_SYSLOG_PORT:-5514}:${DCSIM_SYSLOG_PORT:-5514}/tcp"
+    volumes:
+      - dcsim-data:/data
+    restart: unless-stopped
+
+volumes:
+  dcsim-data:

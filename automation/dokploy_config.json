@@ -1,0 +1,128 @@
+[
+  {
+    "name": "AI Guardrails Playground",
+    "repo": "https://github.com/alshawwaf/ai-guardrails-demo.git",
+    "domain": "guardrails.{{DOMAIN}}",
+    "service": "web",
+    "port": 9000,
+    "hostPort": 9000,
+    "envFile": "ai-guardrails-demo"
+  },
+  {
+    "name": "Training Portal",
+    "repo": "https://github.com/alshawwaf/training-portal.git",
+    "domain": "training.{{DOMAIN}}",
+    "service": "frontend",
+    "port": 9090,
+    "envFile": "training-portal"
+  },
+  {
+    "name": "Docs to Swagger",
+    "repo": "https://github.com/alshawwaf/cp-docs-to-swagger.git",
+    "branch": "master",
+    "domain": "swagger.{{DOMAIN}}",
+    "service": "app",
+    "port": 9482,
+    "hostPort": 9482
+  },
+  {
+    "name": "Script Builder",
+    "repo": "git@github.com:alshawwaf/cp-script-builder.git",
+    "domain": "scriptbuilder.{{DOMAIN}}",
+    "service": "app",
+    "port": 5050,
+    "envFile": "cp-script-builder"
+  },
+  {
+    "name": "Threat Prevention Server",
+    "repo": "https://github.com/alshawwaf/cp_demo_server.git",
+    "branch": "GA",
+    "domain": "threat.{{DOMAIN}}",
+    "service": "cp-demo-server",
+    "port": 8080,
+    "composePath": "./docker-compose.dokploy.yml"
+  },
+  {
+    "name": "Identity Provider (IdP)",
+    "repo": "https://github.com/alshawwaf/SAML_IDP_Simulator.git",
+    "branch": "master",
+    "domain": "idp.{{DOMAIN}}",
+    "service": "idp",
+    "port": 5000,
+    "localCompose": "automation/idp-compose.yml",
+    "envFile": "idp"
+  },
+  {
+    "name": "OpenClaw",
+    "domain": "claw.{{DOMAIN}}",
+    "service": "openclaw-gateway",
+    "port": 18789,
+    "localCompose": "automation/openclaw-compose.yml",
+    "envFile": "openclaw"
+  },
+  {
+    "name": "AI Basic Training",
+    "repo": "https://github.com/alshawwaf/ai-basic-training.git",
+    "branch": "master",
+    "domain": "learn.{{DOMAIN}}",
+    "service": "portal",
+    "port": 5000,
+    "envFile": "training-portal"
+  },
+  {
+    "name": "PolicyPilot",
+    "repo": "https://github.com/alshawwaf/PolicyPilot.git",
+    "domain": "policypilot.{{DOMAIN}}",
+    "service": "policypilot",
+    "port": 8000,
+    "envFile": "policypilot",
+    "composePath": "./docker-compose.dokploy.yml"
+  },
+  {
+    "name": "Drawbridge",
+    "repo": "https://github.com/alshawwaf/Drawbridge.git",
+    "domain": "dcsim.{{DOMAIN}}",
+    "service": "drawbridge",
+    "port": 8000,
+    "envFile": "drawbridge",
+    "composePath": "./docker-compose.dokploy.yml"
+  },
+  {
+    "name": "Dev Hub",
+    "repo": "https://github.com/alshawwaf/dev-hub.git",
+    "domain": "hub.{{DOMAIN}}",
+    "service": "dev_hub_frontend",
+    "port": 80,
+    "envFile": "dev-hub",
+    "composePath": "./docker-compose.dokploy.yml"
+  },
+  {
+    "name": "CP Agentic MCP Playground",
+    "repo": "https://github.com/alshawwaf/cp-agentic-mcp-playground.git",
+    "envFile": "agentic",
+    "service": "n8n",
+    "exposures": [
+      {
+        "domain": "n8n.{{DOMAIN}}",
+        "service": "n8n",
+        "port": 5678
+      },
+      {
+        "domain": "chat.{{DOMAIN}}",
+        "service": "open-webui",
+        "port": 8080
+      },
+      {
+        "domain": "flowise.{{DOMAIN}}",
+        "service": "flowise",
+        "port": 3020
+      },
+      {
+        "domain": "langflow.{{DOMAIN}}",
+        "service": "langflow",
+        "port": 7860
+      }
+    ],
+    "composePath": "./docker-compose.yml"
+  }
+]
