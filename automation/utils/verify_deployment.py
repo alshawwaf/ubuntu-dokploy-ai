@@ -182,6 +182,19 @@ def verify(url, email, password, timeout, interval, board=False, wanted=None):
     start = time.time()
     deadline = start + timeout
     last_beat = 0.0
+    hosts_cache = {}
+
+    def app_reachable(a):
+        """True once the app actually SERVES — Traefik routes every one of its
+        hosts (none 404 / errored). Hosts are queried once and cached. An app
+        with no configured domain has nothing to probe, so it doesn't block."""
+        hosts = hosts_cache.get(a["composeId"])
+        if hosts is None:
+            hosts = compose_hosts(s, url, a["composeId"])
+            hosts_cache[a["composeId"]] = hosts
+        if not hosts:
+            return True
+        return all(probe_host(h) not in (0, 404) for h in hosts)
 
     while True:
         projects = docker_all_projects()
@@ -197,14 +210,26 @@ def verify(url, email, password, timeout, interval, board=False, wanted=None):
             a["status"] = st
             run, tot, hlz, unh = app_health(projects, a["name"])
             a["run"], a["tot"], a["healthy"], a["unhealthy"] = run, tot, hlz, unh
-            bs = board_state(st, run, tot)
-            # Board mode: emit a machine-readable snapshot for EVERY app each poll
-            # (tab-delimited; install.sh routes "@APP…" into the live grid). Names
-            # may contain spaces — tabs keep the fields unambiguous.
+            # Reachability only matters once containers are up — probe then, and
+            # KEEP WAITING while a done+running app isn't yet serving (models
+            # loading, app booting). Stopping at composeStatus=done is what let
+            # the installer say "complete" while every URL still 404'd.
+            reachable = app_reachable(a) if (st in TERMINAL_OK and run > 0) else None
+            a["reachable"] = reachable
+            if st in TERMINAL_BAD:
+                bs, terminal = "failed", True
+            elif st in TERMINAL_OK and run > 0:
+                bs, terminal = ("up", True) if reachable else ("building", False)
+            elif st in TERMINAL_OK and run == 0:
+                bs, terminal = "degraded", True          # done, no containers — won't self-heal
+            elif st == "running" or run > 0:
+                bs, terminal = "building", False
+            else:
+                bs, terminal = "queued", False
             if board:
                 print(f"@APP\t{a['name']}\t{bs}\t{run}/{tot}", flush=True)
             # Human transition line only on a meaningful change (tidy activity feed).
-            key = f"{st}/{run}/{tot}"
+            key = f"{st}/{run}/{tot}/{bs}"
             if last_emit.get(a["composeId"]) != key:
                 last_emit[a["composeId"]] = key
                 if board:
@@ -218,7 +243,6 @@ def verify(url, email, password, timeout, interval, board=False, wanted=None):
                     print(f"    {icon} {a['name'][:34]:34} {st:8} containers {run}/{tot}"
                           + (f" ({hlz} healthy)" if hlz else "")
                           + (" UNHEALTHY" if unh else ""))
-            terminal = st in TERMINAL_OK or st in TERMINAL_BAD
             if not terminal:
                 pending.append(a["name"])
         if not pending:
