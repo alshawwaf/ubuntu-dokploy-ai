@@ -83,6 +83,8 @@ STEP_STATUS="done"
 STEP_LINES=()
 WARNINGS=()
 UI_MODE_LABEL=""
+UI_HOST=""
+UI_OS=""
 UI_H=6          # fixed header rows
 UI_LOGH=14      # fixed log-box rows (the live output is CONTAINED to these)
 UI_ROWS=24
@@ -97,7 +99,7 @@ if [ -t 1 ] && [ -z "${NO_RICH_UI:-}" ]; then
   esac
 fi
 
-_elapsed() { local s=$(( $(date +%s) - RUN_T0 )); printf '%02d:%02d' $((s/60)) $((s%60)); }
+_elapsed() { local s=$(( ${EPOCHSECONDS:-$(date +%s)} - RUN_T0 )); printf '%02d:%02d' $((s/60)) $((s%60)); }
 
 _step_close() {
   [ "$STEP_NO" -eq 0 ] && return 0
@@ -128,7 +130,7 @@ SPIN_I=0
 UI_ALT=0
 
 _ui_rule() { local w="$1" i out=""; for ((i=0;i<w;i++)); do out="${out}─"; done; printf '%s' "$out"; }
-_os_short() { ( . /etc/os-release 2>/dev/null; printf '%s %s' "${NAME:-Linux}" "${VERSION_ID:-}" ); }
+_os_short() { ( . /etc/os-release 2>/dev/null || true; printf '%s %s' "${NAME:-Linux}" "${VERSION_ID:-}" ); }
 _spin() { SPIN_I=$(( (SPIN_I+1) % ${#SPIN_FRAMES[@]} )); printf '%s' "${SPIN_FRAMES[$SPIN_I]}"; }
 _ui_grad_bar() {
   local done="$1" total="$2" width="$3" fill i ci out=""
@@ -177,7 +179,7 @@ _ui_render() {
   # header
   printf '\033[K\033[48;5;53;1;97m%s%*s\033[38;5;219m%s \033[0m\n' "$brand" "$mid" "" "$badge"
   printf '\033[K  \033[38;5;45m%s\033[38;5;240m · \033[38;5;250m%s\033[38;5;240m · \033[38;5;244m%s\033[0m    \033[38;5;213m◷\033[0m \033[1;97m%s\033[0m   \033[38;5;120m✓ %d/%d\033[0m%b\n' \
-    "${DOMAIN:-?}" "$(hostname)" "$(_os_short)" "$(_elapsed)" "$STEP_DONE" "$STEP_TOTAL" "$warns"
+    "${DOMAIN:-?}" "$UI_HOST" "$UI_OS" "$(_elapsed)" "$STEP_DONE" "$STEP_TOTAL" "$warns"
   printf '\033[K  %b \033[1;38;5;219m%3d%%\033[0m\n' "$(_ui_grad_bar "$STEP_DONE" "$STEP_TOTAL" "$barw")" "$pct"
   printf '\033[K\n'
   # checklist
@@ -206,6 +208,7 @@ _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
   _ui_size
   : >"$RUN_LOG" 2>/dev/null || true
+  UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"   # cached: static, avoid a fork every render
   printf '\033[?1049h\033[?25l\033[2J'   # alt screen, hide cursor, clear
   UI_ALT=1
   _ui_render
@@ -219,7 +222,7 @@ _ui_reset() {
   fi
 }
 _ui_winch() { [ "$UI_RICH" = 1 ] || return 0; _ui_size; printf '\033[2J'; _ui_render; }
-_elapsed_since() { local s=$(( $(date +%s) - ${1:-$RUN_T0} )); printf '%02d:%02d' $((s/60)) $((s%60)); }
+_elapsed_since() { local s=$(( ${EPOCHSECONDS:-$(date +%s)} - ${1:-$RUN_T0} )); printf '%02d:%02d' $((s/60)) $((s%60)); }
 
 # Run a command; stream its output through the activity panel (in place, not
 # scrolling) and persist the full output to $RUN_LOG. Consecutive duplicate
