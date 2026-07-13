@@ -1423,8 +1423,21 @@ fi   # ingress mode
 # 8. Fetch the Agentic playground compose so that app can deploy.
 # ---------------------------------------------------------------------------
 step "Agentic playground fetch"
-AGENTIC_DIR="$(dirname "$REPO_DIR")/cp-agentic-mcp-playground"
-if [ ! -f "$AGENTIC_DIR/docker-compose.yml" ]; then
+# Stable, install-form-independent location so a re-run reuses the same checkout
+# instead of cloning from scratch. $REPO_DIR differs between forms (curl|bash
+# lands under /opt; a local clone under its own parent), so keying the path off it
+# made a curl run miss a local run's checkout and re-clone. Pin it, then UPDATE in
+# place when it already exists rather than skip-or-reclone.
+AGENTIC_DIR="${AGENTIC_DIR:-/opt/cp-agentic-mcp-playground}"
+if [ -d "$AGENTIC_DIR/.git" ]; then
+  log "Agentic playground already present — updating $AGENTIC_DIR"
+  _abranch="$(git -C "$AGENTIC_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  git -C "$AGENTIC_DIR" fetch --depth 1 origin "$_abranch" >/dev/null 2>&1 \
+    && git -C "$AGENTIC_DIR" reset --hard FETCH_HEAD >/dev/null 2>&1 \
+    || warn "could not update Agentic playground; using the existing checkout."
+else
+  # Absent, or a partial/empty dir left by an interrupted clone — clear and clone.
+  [ -e "$AGENTIC_DIR" ] && rm -rf "$AGENTIC_DIR"
   log "Cloning Agentic playground -> $AGENTIC_DIR"
   git clone --depth 1 "$AGENTIC_REPO_URL" "$AGENTIC_DIR" || warn "could not clone Agentic playground; that app will be skipped."
 fi
