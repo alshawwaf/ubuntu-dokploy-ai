@@ -258,9 +258,15 @@ _elapsed_since() { _set_elapsed _ELS "${1:-$RUN_T0}"; printf '%s' "$_ELS"; }
 # lines collapse to one "(×N)" entry. Trailing ':' keeps the loop status 0 so
 # a successful command never trips the ERR trap under pipefail.
 _stream() {
+  # NOTE the `</dev/null`: when this script is run as `curl … | sudo bash`, bash
+  # reads the SCRIPT ITSELF from stdin (the pipe). A child that inherits stdin
+  # (e.g. dokploy_automate.py shelling out to ssh/scp) would then consume the
+  # rest of the piped script, so bash hits EOF mid-run and exits silently right
+  # after the deploy — no error, no step 14. Detaching the child's stdin keeps
+  # the pipe intact so bash reads the whole script.
   if [ "$UI_RICH" = 1 ]; then
     local rc n=0 last="" dup=0
-    "$@" 2>&1 | while IFS= read -r _line; do
+    "$@" </dev/null 2>&1 | while IFS= read -r _line; do
       if [ "$_line" = "$last" ]; then
         dup=$((dup+1))
         [ "${#ACT[@]}" -gt 0 ] && ACT[$(( ${#ACT[@]}-1 ))]="$_line (×$((dup+1)))"
@@ -275,7 +281,7 @@ _stream() {
     _ui_render
     return "$rc"
   else
-    "$@"
+    "$@" </dev/null
   fi
 }
 
@@ -286,10 +292,10 @@ _stream() {
 # The command's own output is discarded; pair it with a log() line first to
 # give the activity panel context. Falls back to a plain silent run.
 _run() {
-  if [ "$UI_RICH" != 1 ]; then "$@" >/dev/null 2>&1; return $?; fi
+  if [ "$UI_RICH" != 1 ]; then "$@" </dev/null >/dev/null 2>&1; return $?; fi
   ( while :; do _ui_render; _nap 0.5; done ) &
   local _tk=$!
-  "$@" >/dev/null 2>&1; local _rc=$?
+  "$@" </dev/null >/dev/null 2>&1; local _rc=$?
   kill "$_tk" 2>/dev/null || true; wait "$_tk" 2>/dev/null || true
   _ui_render
   return "$_rc"
