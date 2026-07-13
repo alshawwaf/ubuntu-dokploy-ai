@@ -107,6 +107,8 @@ UI_H=6          # fixed header rows
 UI_LOGH=14      # fixed log-box rows (the live output is CONTAINED to these)
 UI_ROWS=24
 UI_COLS=80
+UI_CW=76           # content width (set responsively by _ui_size)
+UI_MARGIN="  "     # left centering margin (set responsively by _ui_size)
 
 # Pick the renderer: rich only on a real terminal with a capable TERM.
 UI_RICH=0
@@ -199,6 +201,13 @@ _ui_size() {
   ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 2 ))
   [ "$ACT_MAX" -lt 3 ]  && ACT_MAX=3
   [ "$ACT_MAX" -gt 12 ] && ACT_MAX=12
+  # Content width + left margin so the dashboard CENTERS and fills a wide terminal
+  # instead of clustering in the top-left corner. Cap the content width so the bar
+  # and dividers stay a sane length on ultra-wide terminals; the leftover space
+  # becomes a centering margin. On an 80-col console this is a no-op (margin = 2).
+  UI_CW=$(( UI_COLS - 4 )); [ "$UI_CW" -gt 132 ] && UI_CW=132; [ "$UI_CW" -lt 36 ] && UI_CW=36
+  _mg=$(( (UI_COLS - UI_CW) / 2 )); [ "$_mg" -lt 2 ] && _mg=2
+  printf -v UI_MARGIN '%*s' "$_mg" ''
   return 0   # a trailing `[ ] && …` that tests false would otherwise make this
              # function return non-zero and trip the ERR trap under set -e
 }
@@ -246,10 +255,10 @@ _ui_render() {
   [ "$UI_RICH" = 1 ] || return 0
   local E=$'\033' pct barw brand badge mid warns i st name sec icon col line f pad namep hdr rw
   local countseg failstr avail cap shown more n stt det ic cc
-  barw=$(( UI_COLS - 12 )); [ "$barw" -lt 12 ] && barw=12; [ "$barw" -gt 64 ] && barw=64
+  barw=$(( UI_CW - 8 )); [ "$barw" -lt 12 ] && barw=12
   brand=" ◆ ubuntu-dokploy-ai · one-command provisioner "
   badge="[ ${UI_MODE_LABEL} ]"
-  mid=$(( UI_COLS - ${#brand} - ${#badge} - 1 )); [ "$mid" -lt 1 ] && mid=1
+  mid=$(( UI_CW - ${#brand} - ${#badge} - 1 )); [ "$mid" -lt 1 ] && mid=1
   printf -v pad '%*s' "$mid" ''
   warns=""; [ "${#WARNINGS[@]}" -gt 0 ] && warns="   ${E}[38;5;214m⚠ ${#WARNINGS[@]}${E}[0m"
   _spin; _set_elapsed _EL
@@ -269,24 +278,24 @@ _ui_render() {
   # printf — no $() subshell forks and one terminal write, so the ticker stays
   # on cadence even while a heavy step saturates the box.
   f="${E}[H"
-  f+="${E}[K${E}[48;5;53;1;97m${brand}${pad}${E}[38;5;219m${badge} ${E}[0m"$'\n'
-  f+="${E}[K  ${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
-  f+="${E}[K  ${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m"$'\n'
+  f+="${E}[K${UI_MARGIN}${E}[48;5;53;1;97m${brand}${pad}${E}[38;5;219m${badge} ${E}[0m"$'\n'
+  f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
+  f+="${E}[K${UI_MARGIN}${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m"$'\n'
   f+="${E}[K"$'\n'
   if [ "$APPS_PHASE" = 1 ]; then
     # ---- setup checklist collapses to one line; the live app board takes over ----
     if [ "$HUB_LIVE" = 1 ]; then
-      f+="${E}[K  ${E}[1;38;5;120m✔ hub is live → ${E}[1;4;38;5;159mhttps://hub.${DOMAIN}${E}[0m"$'\n'
+      f+="${E}[K${UI_MARGIN}${E}[1;38;5;120m✔ hub is live → ${E}[1;4;38;5;159mhttps://hub.${DOMAIN}${E}[0m"$'\n'
     else
-      f+="${E}[K  ${E}[38;5;120m✔${E}[0m ${E}[38;5;250mhost + platform ready${E}[38;5;240m · ${STEP_DONE}/${STEP_TOTAL} steps${E}[0m"$'\n'
+      f+="${E}[K${UI_MARGIN}${E}[38;5;120m✔${E}[0m ${E}[38;5;250mhost + platform ready${E}[38;5;240m · ${STEP_DONE}/${STEP_TOTAL} steps${E}[0m"$'\n'
     fi
-    rw=$(( UI_COLS>18 ? UI_COLS-18 : 4 )); _set_rule "$rw"
-    f+="${E}[K${E}[38;5;53m─ ${E}[38;5;219mdeploying apps ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
+    rw=$(( UI_CW>18 ? UI_CW-18 : 4 )); _set_rule "$rw"
+    f+="${E}[K${UI_MARGIN}${E}[38;5;53m─ ${E}[38;5;219mdeploying apps ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
     if [ "${#APP_ORDER[@]}" -eq 0 ]; then
       # No snapshot yet — show the intro / recent activity lines.
       for ((i=0;i<ACT_MAX;i++)); do
         line="${ACT[$i]:-}"
-        f+="${E}[K${E}[38;5;245m${line:0:$((UI_COLS-1))}${E}[0m"$'\n'
+        f+="${E}[K${UI_MARGIN}${E}[38;5;245m${line:0:$((UI_CW-1))}${E}[0m"$'\n'
       done
     else
       # Row budget so the frame never exceeds the terminal (no scroll): rows are
@@ -308,13 +317,13 @@ _ui_render() {
           *)        ic="${E}[38;5;240m○${E}[0m";            cc="${E}[38;5;242m" ;;
         esac
         printf -v namep '%-34s' "${n:0:34}"
-        f+="${E}[K  ${ic} ${cc}${namep}${E}[0m ${E}[38;5;240m${det}${E}[0m"$'\n'
+        f+="${E}[K${UI_MARGIN}${ic} ${cc}${namep}${E}[0m ${E}[38;5;240m${det}${E}[0m"$'\n'
         shown=$((shown+1))
       done
-      [ "$more" -gt 0 ] && f+="${E}[K  ${E}[38;5;240m… and ${more} more${E}[0m"$'\n'
+      [ "$more" -gt 0 ] && f+="${E}[K${UI_MARGIN}${E}[38;5;240m… and ${more} more${E}[0m"$'\n'
       failstr=""; [ "$APPS_FAILED" -gt 0 ] && failstr=" ${E}[38;5;240m· ${E}[38;5;203m${APPS_FAILED} failed${E}[0m"
       _set_elapsed _ELS "$STEP_T0"
-      f+="${E}[K  ${E}[38;5;120m✔ ${APPS_UP} up${E}[0m ${E}[38;5;240m· ${E}[1;38;5;213m${APPS_BUILDING} building${E}[0m ${E}[38;5;240m· ${E}[38;5;242m${APPS_QUEUED} queued${E}[0m${failstr}   ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_ELS}${E}[0m"$'\n'
+      f+="${E}[K${UI_MARGIN}${E}[38;5;120m✔ ${APPS_UP} up${E}[0m ${E}[38;5;240m· ${E}[1;38;5;213m${APPS_BUILDING} building${E}[0m ${E}[38;5;240m· ${E}[38;5;242m${APPS_QUEUED} queued${E}[0m${failstr}   ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_ELS}${E}[0m"$'\n'
     fi
   else
     # ---- normal setup phase: the step checklist + scrolling activity panel ----
@@ -329,14 +338,14 @@ _ui_render() {
         *)       icon="${E}[38;5;238m○${E}[0m"; col="${E}[38;5;242m"; sec="" ;;
       esac
       printf -v namep '%-42s' "$name"
-      f+="${E}[K  ${icon} ${col}${namep}${E}[0m ${sec}"$'\n'
+      f+="${E}[K${UI_MARGIN}${icon} ${col}${namep}${E}[0m ${sec}"$'\n'
     done
     hdr=activity
-    rw=$(( UI_COLS>14 ? UI_COLS-14 : 4 )); _set_rule "$rw"
-    f+="${E}[K${E}[38;5;53m─ ${E}[38;5;219m${hdr} ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
+    rw=$(( UI_CW>14 ? UI_CW-14 : 4 )); _set_rule "$rw"
+    f+="${E}[K${UI_MARGIN}${E}[38;5;53m─ ${E}[38;5;219m${hdr} ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
     for ((i=0;i<ACT_MAX;i++)); do
       line="${ACT[$i]:-}"
-      f+="${E}[K${E}[38;5;245m${line:0:$((UI_COLS-1))}${E}[0m"$'\n'
+      f+="${E}[K${UI_MARGIN}${E}[38;5;245m${line:0:$((UI_CW-1))}${E}[0m"$'\n'
     done
   fi
   f+="${E}[J"
