@@ -42,7 +42,14 @@ services:
     pull_policy: always
     container_name: openclaw-cli
     restart: unless-stopped
-    command: node dist/index.js agent
+    # Idle helper, kept up for on-demand use:
+    #   docker exec openclaw-cli node dist/index.js agent --message "…" --agent <id>
+    # Running `node dist/index.js agent` AS the container command errors instantly
+    # ("Missing message") and, with restart:unless-stopped, crash-loops — this hit
+    # 261 restarts, and each restart fired a Docker event that made Traefik
+    # re-evaluate + momentarily drop EVERY route, flapping the whole lab's ingress.
+    # Sleep instead so it stays available without churning.
+    entrypoint: ["sh", "-c", "tail -f /dev/null"]
     environment:
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
