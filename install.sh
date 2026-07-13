@@ -1478,11 +1478,21 @@ _stream_apps python3 -u automation/utils/verify_deployment.py "${_vf_common[@]}"
 step "AI stack — models + agentic bundle"
 log "Now the LLM/agentic stack: this pulls model weights and builds the bundle,"
 log "so it is the long part. $HUB_URL is already usable while this finishes."
-_stream python3 automation/dokploy_automate.py "${_da_common[@]}" --tier heavy $CLEAN || \
+# --no-purge (and NO $CLEAN) is critical: this is the SECOND wave. A tier deploy
+# otherwise clean-slates the whole Dokploy environment before deploying — and
+# $CLEAN/--clean deletes every project — either of which would DESTROY the core
+# tier we just brought up. The heavy wave must only ADD to the existing core
+# deployment, so the clean-slate belongs to the core (first) wave alone.
+_stream python3 automation/dokploy_automate.py "${_da_common[@]}" --tier heavy --no-purge || \
   warn "heavy-tier deploy trigger reported an error — check the Dokploy dashboard."
+# Verify the WHOLE board here, not just the heavy tier: the final wave is the
+# only place that sees every app at once, so a full-board check catches a core
+# app that silently went missing (e.g. a cross-tier wipe) instead of reporting
+# green on heavy alone. The heavy images are the long pole, so the timeout still
+# needs to cover them.
 _stream_apps python3 -u automation/utils/verify_deployment.py "${_vf_common[@]}" \
-  --tier heavy --timeout "${VERIFY_TIMEOUT:-2700}" || \
-  warn "one or more heavy apps did not come up in time — they may still be building; check the Dokploy dashboard."
+  --tier all --timeout "${VERIFY_TIMEOUT:-2700}" || \
+  warn "one or more apps did not come up in time — they may still be building; check the board and the Dokploy dashboard."
 
 if [ "$INGRESS_MODE" = "tunnel" ]; then
   DOKPLOY_ACCESS="Dokploy dashboard : https://dokploy.$DOMAIN  (behind a Traefik basic-auth gate;

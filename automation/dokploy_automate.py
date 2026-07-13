@@ -1233,6 +1233,14 @@ if __name__ == "__main__":
         help="Delete existing project before starting (Fresh Rebuild)",
     )
     parser.add_argument("--app", help="Filter: Only process this specific app name")
+    parser.add_argument(
+        "--no-purge",
+        action="store_true",
+        help="Do NOT delete existing env services before deploying. Use on the 2nd+ "
+             "tier wave (e.g. --tier heavy) so it ADDS to the already-deployed earlier "
+             "tier instead of wiping it. Without this, a tier deploy clean-slates the "
+             "whole environment first, which would destroy a previously-deployed tier.",
+    )
     parser.add_argument("--ssh-user", default="adminuser", help="SSH Username (default: adminuser)")
     parser.add_argument("--ssh-password", help="SSH Password (optional, for initial setup)")
     parser.add_argument("--skip-harden", action="store_true", help="Skip the built-in harden_server step (install.sh hardens the host itself).")
@@ -1534,9 +1542,11 @@ if __name__ == "__main__":
             print(f"CRITICAL: Failed to establish project/environment context. project_id={project_id}, env_id={env_id}")
             sys.exit(1)
 
-        if not args.app:
+        if not args.app and not args.no_purge:
             print("Cleaning up existing deployments...")
             delete_all_services(url, cookies, env_id)
+        elif args.no_purge:
+            print("--no-purge: keeping existing env services (adding this tier on top).")
 
         # Fetch existing apps in the environment
         existing_apps = get_all_compose_ids(url, cookies, env_id)
