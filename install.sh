@@ -153,6 +153,8 @@ _ui_size() {
   ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 2 ))
   [ "$ACT_MAX" -lt 3 ]  && ACT_MAX=3
   [ "$ACT_MAX" -gt 12 ] && ACT_MAX=12
+  return 0   # a trailing `[ ] && …` that tests false would otherwise make this
+             # function return non-zero and trip the ERR trap under set -e
 }
 # Push a raw output line into the activity ring (+ persist to the log file).
 _ui_push() {
