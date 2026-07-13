@@ -506,24 +506,26 @@ run_uninstall() {
   fi
 
   step "Tearing down Docker Swarm"
-  # Leave the swarm FIRST so it stops managing/respawning task containers, then
-  # give the manager a moment to drain. Removing services first (the old order)
-  # kicks off async task shutdown and races 'swarm leave', which is what
-  # produced the spurious "could not leave the swarm" warning. 'swarm leave'
-  # removes the services for us. Only warn if the node is STILL a swarm member
-  # after a short retry — i.e. the end state is actually dirty.
+  # Leave the swarm FIRST so it stops managing/respawning task containers. The
+  # 'leave --force' call itself returns immediately, but the daemon then DRAINS
+  # every running task before LocalNodeState flips active -> inactive, and on a
+  # full stack that drain takes longer than a couple of seconds. The old fixed
+  # 3x2s retry warned while the leave was still (correctly) in progress. Instead:
+  # issue the leave once, then POLL until the state actually flips, up to ~40s,
+  # keeping the clock ticking — only warn if it genuinely never leaves.
   if command -v docker >/dev/null 2>&1 && docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
-    local _t
-    log "leaving the Docker swarm (draining services)…"
-    for _t in 1 2 3; do
-      _run docker swarm leave --force || true
-      docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active || break
-      sleep 2
+    local _i _st=active
+    log "leaving the Docker swarm (draining tasks — this can take a bit)…"
+    docker swarm leave --force >/dev/null 2>&1 || true
+    for _i in $(seq 1 40); do
+      _st="$( docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null || echo unknown )"
+      [ "$_st" = active ] || break
+      _nap 1; [ "$UI_RICH" = 1 ] && _ui_render
     done
-    if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q active; then
-      warn "node is still a swarm member after retries."
+    if [ "$_st" = active ]; then
+      warn "swarm still draining after 40s — the leave was issued and finishes in the background (harmless to the teardown)."
     else
-      log "swarm left (services drained)."
+      log "swarm left."
     fi
   else
     log "no active swarm."
