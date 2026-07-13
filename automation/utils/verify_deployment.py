@@ -116,18 +116,22 @@ def app_health(projects, name):
 def board_state(st, run, tot):
     """Collapse (deploy-status, containers) into one live-board state.
 
-    up       — all of the app's containers are running
-    building — deploy is running, or some (not all) containers are up
-    degraded — deploy finished but no containers came up
+    Keyed on the DEPLOY status first, to match the final verdict: once Dokploy
+    reports the compose "done", the app is UP even if run < tot — one-shot / init
+    / model-pull / migration containers exit after they finish, so a healthy
+    stack routinely runs fewer containers than it has (e.g. 31/36). Requiring
+    run == tot wrongly pinned such apps at "building" forever.
+
+    up       — deploy done, at least one container running
+    degraded — deploy done, but nothing is running
+    building — deploy still in progress (or containers just appearing)
     failed   — deploy errored
-    queued   — not started yet (idle, no containers)
+    queued   — not started yet
     """
     if st in TERMINAL_BAD:
         return "failed"
-    if tot > 0 and run >= tot:
-        return "up"
-    if st in TERMINAL_OK and run == 0:
-        return "degraded"
+    if st in TERMINAL_OK:
+        return "up" if run > 0 else "degraded"
     if st == "running" or run > 0:
         return "building"
     return "queued"
