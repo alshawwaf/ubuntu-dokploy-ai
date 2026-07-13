@@ -85,6 +85,9 @@ WARNINGS=()
 UI_MODE_LABEL=""
 UI_HOST=""
 UI_OS=""
+_EL=""
+_ELS=""
+_NAP_OK=0
 UI_H=6          # fixed header rows
 UI_LOGH=14      # fixed log-box rows (the live output is CONTAINED to these)
 UI_ROWS=24
@@ -99,7 +102,7 @@ if [ -t 1 ] && [ -z "${NO_RICH_UI:-}" ]; then
   esac
 fi
 
-_elapsed() { local s=$(( ${EPOCHSECONDS:-$(date +%s)} - RUN_T0 )); printf '%02d:%02d' $((s/60)) $((s%60)); }
+_elapsed() { _set_elapsed _EL; printf '%s' "$_EL"; }
 
 _step_close() {
   [ "$STEP_NO" -eq 0 ] && return 0
@@ -129,33 +132,46 @@ SPIN_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)   # array (multibyte-safe;
 SPIN_I=0
 UI_ALT=0
 
+# All of these SET a global instead of printing, so _ui_render can call them as
+# statements (no $() subshell fork per frame — the real cost under I/O load).
 declare -A _RULE_CACHE
-_ui_rule() {   # memoized: a rule of a given width is built once, reused every render
+_RULE_OUT=""
+_set_rule() {
   local w="$1"
   if [ -z "${_RULE_CACHE[$w]:-}" ]; then
     local i out=""; for ((i=0;i<w;i++)); do out="${out}─"; done; _RULE_CACHE[$w]="$out"
   fi
-  printf '%s' "${_RULE_CACHE[$w]}"
+  _RULE_OUT="${_RULE_CACHE[$w]}"
 }
+_ui_rule() { _set_rule "$1"; printf '%s' "$_RULE_OUT"; }   # printing wrapper (non-hot callers)
 _os_short() { ( . /etc/os-release 2>/dev/null || true; printf '%s %s' "${NAME:-Linux}" "${VERSION_ID:-}" ); }
-_spin() { SPIN_I=$(( (SPIN_I+1) % ${#SPIN_FRAMES[@]} )); printf '%s' "${SPIN_FRAMES[$SPIN_I]}"; }
-_BAR_KEY=""; _BAR_STR=""
-_ui_grad_bar() {   # memoized: only rebuilt when progress or width changes
+_SPINCH=""
+_spin() { SPIN_I=$(( (SPIN_I+1) % ${#SPIN_FRAMES[@]} )); _SPINCH="${SPIN_FRAMES[$SPIN_I]}"; }
+_set_elapsed() { local s=$(( ${EPOCHSECONDS:-$(date +%s)} - ${2:-$RUN_T0} )); printf -v "$1" '%02d:%02d' $((s/60)) $((s%60)); }
+_BAR_KEY=""; _BAR_OUT=""
+_set_bar() {
   local done="$1" total="$2" width="$3" key="$1|$2|$3"
-  if [ "$key" != "$_BAR_KEY" ]; then
-    local fill i ci out='\033[38;5;239m▕'
-    local ramp=(57 63 99 135 171 207 213 219); local n=${#ramp[@]}
-    if [ "$total" -gt 0 ]; then fill=$(( done*width/total )); else fill=0; fi
-    for ((i=0;i<width;i++)); do
-      if [ "$i" -lt "$fill" ]; then
-        ci=$(( i*n/width )); [ "$ci" -ge "$n" ] && ci=$((n-1))
-        out="${out}\033[38;5;${ramp[$ci]}m█"
-      else out="${out}\033[38;5;238m░"; fi
-    done
-    _BAR_KEY="$key"; _BAR_STR="${out}\033[38;5;239m▏\033[0m"
-  fi
-  printf '%b' "$_BAR_STR"
+  [ "$key" = "$_BAR_KEY" ] && return 0
+  local E=$'"'"'\033'"'"' fill i ci out
+  local ramp=(57 63 99 135 171 207 213 219) n=8
+  out="${E}[38;5;239m▕"
+  if [ "$total" -gt 0 ]; then fill=$(( done*width/total )); else fill=0; fi
+  for ((i=0;i<width;i++)); do
+    if [ "$i" -lt "$fill" ]; then ci=$(( i*n/width )); [ "$ci" -ge "$n" ] && ci=$((n-1)); out="${out}${E}[38;5;${ramp[$ci]}m█"
+    else out="${out}${E}[38;5;238m░"; fi
+  done
+  _BAR_KEY="$key"; _BAR_OUT="${out}${E}[38;5;239m▏${E}[0m"
 }
+# no-fork fractional sleep: read with a timeout on a persistent fifo fd (fd 8),
+# so the animation ticker doesn't fork /usr/bin/sleep every 0.5s under load.
+_nap_setup() {
+  [ "$_NAP_OK" = 1 ] && return 0
+  local f; f="$(mktemp -u 2>/dev/null)" || return 0
+  mkfifo "$f" 2>/dev/null || return 0
+  exec 8<>"$f" 2>/dev/null && _NAP_OK=1
+  rm -f "$f"; return 0
+}
+_nap() { if [ "$_NAP_OK" = 1 ]; then read -rt "$1" -u 8 _ 2>/dev/null || true; else sleep "$1"; fi; }
 _ui_size() {
   UI_ROWS="$( tput lines 2>/dev/null || echo "${LINES:-24}" )"
   UI_COLS="$( tput cols  2>/dev/null || echo "${COLUMNS:-80}" )"
@@ -178,48 +194,50 @@ _ui_push() {
 # Repaint the entire frame from state. Absolute-addressed, each row cleared.
 _ui_render() {
   [ "$UI_RICH" = 1 ] || return 0
-  local pct barw brand badge mid warns row i st name sec icon col line spin
-  if [ "$STEP_TOTAL" -gt 0 ]; then pct=$(( STEP_DONE*100/STEP_TOTAL )); else pct=0; fi
+  local E=$'\033' pct barw brand badge mid warns i st name sec icon col line f pad namep hdr rw
+  pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
   barw=$(( UI_COLS - 12 )); [ "$barw" -lt 12 ] && barw=12; [ "$barw" -gt 64 ] && barw=64
   brand=" ◆ ubuntu-dokploy-ai · one-command provisioner "
   badge="[ ${UI_MODE_LABEL} ]"
   mid=$(( UI_COLS - ${#brand} - ${#badge} - 1 )); [ "$mid" -lt 1 ] && mid=1
-  warns=""; [ "${#WARNINGS[@]}" -gt 0 ] && warns="   \033[38;5;214m⚠ ${#WARNINGS[@]}\033[0m"
-  spin="$(_spin)"
-  printf '\033[H'
-  # header
-  printf '\033[K\033[48;5;53;1;97m%s%*s\033[38;5;219m%s \033[0m\n' "$brand" "$mid" "" "$badge"
-  printf '\033[K  \033[38;5;45m%s\033[38;5;240m · \033[38;5;250m%s\033[38;5;240m · \033[38;5;244m%s\033[0m    \033[38;5;213m◷\033[0m \033[1;97m%s\033[0m   \033[38;5;120m✓ %d/%d\033[0m%b\n' \
-    "${DOMAIN:-?}" "$UI_HOST" "$UI_OS" "$(_elapsed)" "$STEP_DONE" "$STEP_TOTAL" "$warns"
-  printf '\033[K  %b \033[1;38;5;219m%3d%%\033[0m\n' "$(_ui_grad_bar "$STEP_DONE" "$STEP_TOTAL" "$barw")" "$pct"
-  printf '\033[K\n'
-  # checklist
+  printf -v pad '%*s' "$mid" ''
+  warns=""; [ "${#WARNINGS[@]}" -gt 0 ] && warns="   ${E}[38;5;214m⚠ ${#WARNINGS[@]}${E}[0m"
+  _spin; _set_elapsed _EL; _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw"
+  # Build the WHOLE frame in one string (raw ESC bytes) and write it with ONE
+  # printf — no $() subshell forks and one terminal write, so the ticker stays
+  # on cadence even while a heavy step saturates the box.
+  f="${E}[H"
+  f+="${E}[K${E}[48;5;53;1;97m${brand}${pad}${E}[38;5;219m${badge} ${E}[0m"$'\n'
+  f+="${E}[K  ${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${E}[38;5;120m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m${warns}"$'\n'
+  f+="${E}[K  ${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m"$'\n'
+  f+="${E}[K"$'\n'
   for ((i=1;i<=STEP_TOTAL;i++)); do
     st="${STEP_ST[$i]:-pending}"; name="${STEP_NAMES[$i]:-}"; sec="${STEP_SEC[$i]:-}"
     case "$st" in
-      done)    icon='\033[38;5;120m✔\033[0m'; col='\033[38;5;252m';   sec="\033[38;5;240m${sec}\033[0m" ;;
-      running) icon="\033[1;38;5;213m${spin}\033[0m"; col='\033[1;97m'; sec="\033[38;5;213m$(_elapsed_since "$STEP_T0")\033[0m" ;;
-      warn)    icon='\033[38;5;214m▲\033[0m'; col='\033[38;5;252m';   sec="\033[38;5;214m${sec}\033[0m" ;;
-      skip)    icon='\033[38;5;244m⤼\033[0m'; col='\033[38;5;244m';   sec='\033[38;5;240mskipped\033[0m' ;;
-      *)       icon='\033[38;5;238m○\033[0m'; col='\033[38;5;242m';   sec='' ;;
+      done)    icon="${E}[38;5;120m✔${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;240m${sec}${E}[0m" ;;
+      running) icon="${E}[1;38;5;213m${_SPINCH}${E}[0m"; col="${E}[1;97m"; _set_elapsed _ELS "$STEP_T0"; sec="${E}[38;5;213m${_ELS}${E}[0m" ;;
+      warn)    icon="${E}[38;5;214m▲${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;214m${sec}${E}[0m" ;;
+      skip)    icon="${E}[38;5;244m⤼${E}[0m"; col="${E}[38;5;244m"; sec="${E}[38;5;240mskipped${E}[0m" ;;
+      *)       icon="${E}[38;5;238m○${E}[0m"; col="${E}[38;5;242m"; sec="" ;;
     esac
-    printf '\033[K  %b %b%-42s\033[0m %b\n' "$icon" "$col" "$name" "$sec"
+    printf -v namep '%-42s' "$name"
+    f+="${E}[K  ${icon} ${col}${namep}${E}[0m ${sec}"$'\n'
   done
-  # activity panel
-  printf '\033[K\033[38;5;53m─ \033[38;5;219m%s \033[38;5;53m%s\033[0m\n' \
-    "$([ "$STEP_NO" -ge "$STEP_TOTAL" ] && echo apps || echo activity)" \
-    "$(_ui_rule $(( UI_COLS>14 ? UI_COLS-14 : 4 )))"
+  if [ "$STEP_NO" -ge "$STEP_TOTAL" ]; then hdr=apps; else hdr=activity; fi
+  rw=$(( UI_COLS>14 ? UI_COLS-14 : 4 )); _set_rule "$rw"
+  f+="${E}[K${E}[38;5;53m─ ${E}[38;5;219m${hdr} ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
   for ((i=0;i<ACT_MAX;i++)); do
     line="${ACT[$i]:-}"
-    printf '\033[K\033[38;5;245m%s\033[0m\n' "${line:0:$((UI_COLS-1))}"
+    f+="${E}[K${E}[38;5;245m${line:0:$((UI_COLS-1))}${E}[0m"$'\n'
   done
-  printf '\033[J'   # clear anything below
+  f+="${E}[J"
+  printf '%s' "$f"
 }
 _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
   _ui_size
   : >"$RUN_LOG" 2>/dev/null || true
-  UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"   # cached: static, avoid a fork every render
+  UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"; _nap_setup   # cached statics + no-fork nap fd
   printf '\033[?1049h\033[?25l\033[2J'   # alt screen, hide cursor, clear
   UI_ALT=1
   _ui_render
@@ -233,7 +251,7 @@ _ui_reset() {
   fi
 }
 _ui_winch() { [ "$UI_RICH" = 1 ] || return 0; _ui_size; printf '\033[2J'; _ui_render; }
-_elapsed_since() { local s=$(( ${EPOCHSECONDS:-$(date +%s)} - ${1:-$RUN_T0} )); printf '%02d:%02d' $((s/60)) $((s%60)); }
+_elapsed_since() { _set_elapsed _ELS "${1:-$RUN_T0}"; printf '%s' "$_ELS"; }
 
 # Run a command; stream its output through the activity panel (in place, not
 # scrolling) and persist the full output to $RUN_LOG. Consecutive duplicate
@@ -269,7 +287,7 @@ _stream() {
 # give the activity panel context. Falls back to a plain silent run.
 _run() {
   if [ "$UI_RICH" != 1 ]; then "$@" >/dev/null 2>&1; return $?; fi
-  ( while :; do _ui_render; sleep 0.5; done ) &
+  ( while :; do _ui_render; _nap 0.5; done ) &
   local _tk=$!
   "$@" >/dev/null 2>&1; local _rc=$?
   kill "$_tk" 2>/dev/null || true; wait "$_tk" 2>/dev/null || true
