@@ -34,7 +34,7 @@
 curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com
 ```
 
-This is the installer for the [Dev Hub](https://github.com/alshawwaf/dev-hub) ecosystem: a single script hardens the host, installs Docker + Dokploy, generates every secret, sets up ingress, and deploys the whole suite from one config file — with a live dashboard while it works and a full teardown when you're done.
+This is the installer for the [Dev Hub](https://github.com/alshawwaf/dev-hub) ecosystem: a single script hardens the host, installs Docker + Dokploy, generates every secret, sets up ingress, and deploys the whole suite from one config file. It rolls out in **two waves** — the hub + lightweight apps first (so `https://hub.<DOMAIN>` is reachable in a couple of minutes), then the heavy LLM/agentic stack last — with a **live app board** while it works and a full teardown when you're done.
 
 **Two ingress modes** (pick with `--ingress`):
 
@@ -159,7 +159,7 @@ The installer runs the whole pipeline on the box, in order. It is a fixed **14-s
 1. **Preflight** — root/OS check; locate the repo (or clone it if piped via `curl`); resolve the domain and ingress inputs.
 2. **Base packages** — Ubuntu packages for the Python deps (`python3-requests`, `python3-paramiko`, `python3-yaml`) plus `git`, `ufw`, `fail2ban`, `unattended-upgrades` — installed from apt, so no PyPI/pip is needed. Also detects the public IP and WAN interface.
 3. **Base firewall** — `ufw` default-deny, allowing `22/80/443` inbound (or **only `22`** in `--ingress tunnel` mode, since the tunnel dials out and needs no public inbound). See [Security](#security).
-4. **Docker engine** — installed if absent (`get.docker.com`).
+4. **Docker engine** — installed if absent (`get.docker.com`), then Docker's user-network **address pools are pinned to `10.201/10.202.0.0/16`** via `/etc/docker/daemon.json`. Docker's built-in pools run `172.17`–`172.31` and then spill into `192.168.0.0/16` once ~16 compose networks exist — which collides with a `192.168.x` management LAN and can black-hole the host's own SSH (a Docker bridge steals the route to the admin subnet). Pinning to `10.x` keeps every app network clear of common LANs.
 5. **Dokploy platform** — installed if absent (`dokploy.com/install.sh`).
 6. **Traefik hubframe middleware** — a Traefik `hubframe` headers middleware (removes `X-Frame-Options`, sets a permissive `frame-ancestors` CSP), attached as a default middleware on the web/websecure entrypoints so every app can embed in the Dev Hub desktop.
 7. **Host hardening** — the `DOCKER-USER` iptables chain (forces all app ports through Traefik on the auto-detected WAN interface), `fail2ban` (SSH jail), unattended security upgrades, root-key-only sshd, and a baseline user/`authorized_keys` audit. Skip with `--skip-harden`.
@@ -168,8 +168,8 @@ The installer runs the whole pipeline on the box, in order. It is a fixed **14-s
 10. **Cloudflare Tunnel ingress** — *(tunnel mode only)* [`setup_tunnel.py`](automation/setup_tunnel.py) installs `cloudflared`, creates/reuses the named tunnel, writes its config, upserts the proxied wildcard `CNAME`, and installs the systemd service. It then neutralizes Traefik's forced-HTTPS redirect (the tunnel forwards plain HTTP to Traefik on loopback `:80`) and puts the Dokploy dashboard behind a Traefik basic-auth gate at `dokploy.<DOMAIN>`. Skipped in letsencrypt mode.
 11. **Agentic playground fetch** — clones [`cp-agentic-mcp-playground`](https://github.com/alshawwaf/cp-agentic-mcp-playground) next to this repo so its compose can deploy.
 12. **DNS pre-check** — *(letsencrypt mode only)* [`dns_precheck.py`](automation/dns_precheck.py) confirms the wildcard + every app subdomain resolve to the host; aborts with the record to add if not. Override with `--skip-dns-check` / `--dns-warn-only`. Skipped entirely in tunnel mode.
-13. **Stack deploy via Dokploy** — hands off to [`dokploy_automate.py`](automation/dokploy_automate.py), which registers the Dokploy admin, authenticates (Better-Auth session), and builds every app on the local Dokploy server (`--local-server`). Heavy build-from-source apps deploy last so the quick ones come up first.
-14. **Waiting for apps to build & come up** — [`verify_deployment.py`](automation/utils/verify_deployment.py) polls each app until its containers are actually up (see [the dashboard](#the-live-installer-dashboard)), then prints where the generated admin password lives.
+13. **Core apps — hub + essentials** — hands off to [`dokploy_automate.py`](automation/dokploy_automate.py) with `--tier core`: registers the Dokploy admin, authenticates (Better-Auth session), and deploys the **hub + lightweight apps first** on the local Dokploy server (`--local-server`), then waits on the [live app board](#the-live-installer-dashboard) until they're up — so **`https://hub.<DOMAIN>` is reachable in a couple of minutes** and the board flips to a "hub is live" banner.
+14. **AI stack — models + agentic bundle** — deploys the **heavy** tier last (`--tier heavy`: the CP-Agentic bundle, AI Guardrails, OpenClaw), only after core is up, so the multi-GB model pulls don't starve the quick apps. [`verify_deployment.py`](automation/utils/verify_deployment.py) boards each app until its containers are actually up, then prints where the generated admin password lives. Tier is set per app in `dokploy_config.json` (`"tier": "heavy"`; absent = `core`).
 
 </details>
 
@@ -185,6 +185,7 @@ The installer runs the whole pipeline on the box, in order. It is a fixed **14-s
 The installer renders its progress two ways, chosen automatically:
 
 - **Rich dashboard** — on an interactive terminal, a status view is painted in place on the *alternate screen* (so your shell and scrollback are untouched and restored on exit): a banner, a gradient **progress bar**, the **14-step checklist** (animated spinner on the running step; `✔` done / `▲` warned / `⤼` skipped / `○` pending, each with its duration), the elapsed clock, a warning counter, and a contained live **activity panel** showing the tail of the current command.
+- **Live app board** — during the two deploy waves the finished checklist collapses to one line and a per-app board takes over: each app shows its state live — `○` queued · `⠦` building (animated) · `✔` up · `▲` degraded · `✖` failed — with its container count. The progress bar + counter switch to **apps up / total**, and the summary line flips to **`✔ hub is live → https://hub.<DOMAIN>`** the instant the hub's containers are up. The clock ticks every second even while a build is silent for minutes.
 - **Plain mode** — when output is piped to a file, run under `nohup`, or the terminal is dumb, it falls back to clean numbered-step lines that read well in a log. Force it with `--plain` or `NO_RICH_UI=1`.
 
 Either way:
@@ -193,7 +194,7 @@ Either way:
 - The run ends with a **run-summary table** (per-step status + duration) and any warnings collected along the way — a warned-but-complete run is called out honestly rather than reported as clean.
 - On failure the ERR trap names the failing step, elapsed time, and exit code, then lists the warnings up to that point.
 
-**Per-app verification.** The final step doesn't just declare success — [`verify_deployment.py`](automation/utils/verify_deployment.py) waits for Dokploy's asynchronous builds to finish and cross-checks reality: for each app it polls the compose deployment status (`idle → running → done`/`error`) **and** inspects the real Docker containers (running / healthy / unhealthy). It prints status transitions live, emits a heartbeat during long silent builds, and ends with a per-app table plus a non-zero exit if anything failed or timed out. Tune with `VERIFY_TIMEOUT` (default `2700`s = 45m) and `VERIFY_INTERVAL` (default `5`s).
+**Per-app verification.** The deploy waves don't just declare success — [`verify_deployment.py`](automation/utils/verify_deployment.py) waits for Dokploy's asynchronous builds to finish and cross-checks reality: for each app it polls the compose deployment status (`idle → running → done`/`error`) **and** inspects the real Docker containers (running / healthy / unhealthy). In `--board` mode it feeds the live app board; it self-ticks the dashboard clock ~1×/s regardless of output, and ends with a per-app table plus a non-zero exit if anything failed or timed out. Tune the heavy-wave wait with `VERIFY_TIMEOUT` (default `2700`s = 45m), the core-wave wait with `VERIFY_CORE_TIMEOUT` (default `900`s = 15m), and the poll cadence with `VERIFY_INTERVAL` (default `3`s).
 
 </details>
 
@@ -386,6 +387,7 @@ Database ports bind to `127.0.0.1` only — never `0.0.0.0`. Services talk over 
 | `--config` | no | `dokploy_config.json` | Apps config JSON |
 | `--project` | no | `Agentic Demos` | Dokploy project name |
 | `--app` | no | — | Only process this single app (by `name`) |
+| `--tier` | no | `all` | Only deploy apps in this tier: `core` (hub + light), `heavy` (LLM/agentic), or `all`. Read from each config entry's `"tier"` (absent = `core`) |
 | `--skip-harden` | no | off | Skip the built-in `harden_server` step |
 | `--clean` | no | off | Fresh rebuild (delete project/servers first) |
 
@@ -409,7 +411,7 @@ Set by `install.sh`; useful for laptop runs too.
 | `AGENTIC_COMPOSE_PATH` | Path to the cloned agentic playground compose |
 | `NO_RICH_UI` | Set to `1` to force plain output (same as `--plain`) |
 | `RUN_LOG` | Install log path (default `/var/log/dokploy-ai-install.log`) |
-| `VERIFY_TIMEOUT` / `VERIFY_INTERVAL` | Per-app verification timeout / poll interval (default `2700`s / `5`s) |
+| `VERIFY_TIMEOUT` / `VERIFY_CORE_TIMEOUT` / `VERIFY_INTERVAL` | Heavy-wave / core-wave verification timeout and poll interval (defaults `2700`s / `900`s / `3`s) |
 | `CLOUDFLARE_API_TOKEN` | *(tunnel)* Cloudflare API token; scopes: Account>Cloudflare Tunnel>Edit, Zone>DNS>Edit, Zone>Zone>Read |
 | `CLOUDFLARE_ACCOUNT_ID` | *(tunnel)* Cloudflare account id |
 | `CLOUDFLARE_TUNNEL_NAME` | *(tunnel)* named tunnel to create/reuse (default `devhub`) |

@@ -113,20 +113,44 @@ def app_health(projects, name):
     return (r, t, h, u)
 
 
-def verify(url, email, password, timeout, interval):
+def board_state(st, run, tot):
+    """Collapse (deploy-status, containers) into one live-board state.
+
+    up       — all of the app's containers are running
+    building — deploy is running, or some (not all) containers are up
+    degraded — deploy finished but no containers came up
+    failed   — deploy errored
+    queued   — not started yet (idle, no containers)
+    """
+    if st in TERMINAL_BAD:
+        return "failed"
+    if tot > 0 and run >= tot:
+        return "up"
+    if st in TERMINAL_OK and run == 0:
+        return "degraded"
+    if st == "running" or run > 0:
+        return "building"
+    return "queued"
+
+
+def verify(url, email, password, timeout, interval, board=False, wanted=None):
     s = requests.Session()
     if not login(s, url, email, password):
         print("  verify: Dokploy login failed — cannot verify.")
         return 2
 
     apps = discover_composes(s, url)
+    if wanted is not None:
+        # Tiered verify: only wait on the apps in the requested tier.
+        apps = [a for a in apps if a["name"] in wanted]
     if not apps:
         print("  verify: no compose apps found to verify.")
         return 0
     print(f"  verify: waiting for {len(apps)} app(s) to build and come up "
-          f"(timeout {timeout // 60}m)...")
+          f"(timeout {timeout // 60}m)...", flush=True)
 
     last_emit = {}
+    last_board = {}
     start = time.time()
     deadline = start + timeout
     last_beat = 0.0
@@ -136,27 +160,46 @@ def verify(url, email, password, timeout, interval):
         pending = []
         for a in apps:
             st = refresh_status(s, url, a["composeId"])
+            # A transient tRPC/HTTP hiccup returns "unknown"; don't let it
+            # downgrade an app we've already seen (especially one that reached
+            # done) — that could flip a healthy tile red and cause a spurious
+            # timeout at the deadline. Keep the last known status on a failed read.
+            if st == "unknown" and a.get("status"):
+                st = a["status"]
             a["status"] = st
             run, tot, hlz, unh = app_health(projects, a["name"])
             a["run"], a["tot"], a["healthy"], a["unhealthy"] = run, tot, hlz, unh
-            # Print only on a meaningful change (keeps the live box tidy).
+            bs = board_state(st, run, tot)
+            # Board mode: emit a machine-readable snapshot for EVERY app each poll
+            # (tab-delimited; install.sh routes "@APP…" into the live grid). Names
+            # may contain spaces — tabs keep the fields unambiguous.
+            if board:
+                print(f"@APP\t{a['name']}\t{bs}\t{run}/{tot}", flush=True)
+            # Human transition line only on a meaningful change (tidy activity feed).
             key = f"{st}/{run}/{tot}"
             if last_emit.get(a["composeId"]) != key:
                 last_emit[a["composeId"]] = key
-                icon = {"done": "✔", "error": "✖", "running": "…"}.get(st, "·")
-                print(f"    {icon} {a['name'][:34]:34} {st:8} containers {run}/{tot}"
-                      + (f" ({hlz} healthy)" if hlz else "")
-                      + (" UNHEALTHY" if unh else ""))
+                if board:
+                    if last_board.get(a["composeId"]) != bs:
+                        last_board[a["composeId"]] = bs
+                        evi = {"up": "✔", "failed": "✖", "building": "⚙",
+                               "degraded": "▲", "queued": "·"}.get(bs, "·")
+                        print(f"    {evi} {a['name']} → {bs} ({run}/{tot})", flush=True)
+                else:
+                    icon = {"done": "✔", "error": "✖", "running": "…"}.get(st, "·")
+                    print(f"    {icon} {a['name'][:34]:34} {st:8} containers {run}/{tot}"
+                          + (f" ({hlz} healthy)" if hlz else "")
+                          + (" UNHEALTHY" if unh else ""))
             terminal = st in TERMINAL_OK or st in TERMINAL_BAD
             if not terminal:
                 pending.append(a["name"])
         if not pending:
             break
-        # Heartbeat + a compact live snapshot every ~8s so the dashboard keeps
-        # moving during a long silent build (e.g. the CP Agentic bundle) even
-        # when no single app changed status.
         now = time.time()
-        if now - last_beat >= 8:
+        # Non-board heartbeat every ~8s so the old streamer keeps moving during a
+        # long silent build. Board mode doesn't need it: the grid + the installer's
+        # own 1s clock already show liveness.
+        if not board and now - last_beat >= 8:
             last_beat = now
             mins, secs = divmod(int(now - start), 60)
             up = sum(1 for a in apps if a["status"] in TERMINAL_OK and a.get("run", 0) > 0)
@@ -166,7 +209,7 @@ def verify(url, email, password, timeout, interval):
                   f"queued {len(pending) - len(building)}")
         if now > deadline:
             print(f"  verify: timed out with {len(pending)} still building: "
-                  f"{', '.join(pending[:6])}")
+                  f"{', '.join(pending[:6])}", flush=True)
             break
         time.sleep(interval)
 
@@ -203,5 +246,19 @@ if __name__ == "__main__":
     parser.add_argument("--password", required=True, help="Admin password")
     parser.add_argument("--timeout", type=int, default=2700, help="Max seconds to wait (default 2700 = 45m).")
     parser.add_argument("--interval", type=int, default=15, help="Poll interval seconds (default 15).")
+    parser.add_argument("--board", action="store_true",
+                        help="Emit machine-readable @APP snapshot lines for the installer's live board.")
+    parser.add_argument("--config", help="Path to dokploy_config.json, used to resolve --tier app names.")
+    parser.add_argument("--tier", default="all",
+                        help="Verify only this tier's apps (all|core|heavy); requires --config.")
     args = parser.parse_args()
-    sys.exit(verify(args.url.rstrip("/"), args.email, args.password, args.timeout, args.interval))
+    wanted = None
+    if args.tier and args.tier != "all" and args.config:
+        try:
+            _cfg = json.load(open(args.config))
+            wanted = {e["name"] for e in _cfg
+                      if (e.get("tier") or "core").lower() == args.tier.lower()}
+        except Exception as e:
+            print(f"  verify: could not read --config {args.config} ({e}); verifying all apps.")
+    sys.exit(verify(args.url.rstrip("/"), args.email, args.password,
+                    args.timeout, args.interval, board=args.board, wanted=wanted))

@@ -82,6 +82,19 @@ STEP_T0="$RUN_T0"
 STEP_STATUS="done"
 STEP_LINES=()
 WARNINGS=()
+# Live app-deployment board — populated from `verify_deployment.py --board`
+# snapshot lines by _stream_apps during the long build phase. Associative, so a
+# `declare -A` is required.
+declare -A APP_STATE=()
+declare -A APP_DETAIL=()
+APP_ORDER=()
+APPS_PHASE=0
+APPS_UP=0; APPS_BUILDING=0; APPS_QUEUED=0; APPS_DEGRADED=0; APPS_FAILED=0; APPS_TOTAL=0
+# When this app reaches "up" the board flips to a "hub is live" banner (the hub
+# is deployed in the fast first wave, so this fires early).
+HUB_APP_NAME="Dev Hub"
+HUB_URL=""
+HUB_LIVE=0
 UI_MODE_LABEL=""
 UI_HOST=""
 UI_OS=""
@@ -192,44 +205,135 @@ _ui_push() {
   while [ "${#ACT[@]}" -gt "$ACT_MAX" ]; do ACT=("${ACT[@]:1}"); done
 }
 # Repaint the entire frame from state. Absolute-addressed, each row cleared.
+# Parse one "@APP<TAB>name<TAB>state<TAB>detail" board snapshot line (emitted by
+# verify_deployment.py --board) into the live app board. Unknown/short lines are
+# ignored. state ∈ up|building|degraded|failed|queued.
+_apps_update() {
+  local rest name state detail
+  rest="${1#@APP$'\t'}"
+  case "$rest" in *$'\t'*) : ;; *) return 0 ;; esac
+  name="${rest%%$'\t'*}"; rest="${rest#*$'\t'}"
+  state="${rest%%$'\t'*}"; detail="${rest#*$'\t'}"
+  [ -n "$name" ] || return 0
+  [ -n "${APP_STATE[$name]+x}" ] || APP_ORDER+=("$name")
+  APP_STATE["$name"]="$state"; APP_DETAIL["$name"]="$detail"
+  if [ "$HUB_LIVE" != 1 ] && [ "$name" = "$HUB_APP_NAME" ] && [ "$state" = "up" ]; then
+    HUB_LIVE=1; _ui_push "🌐 hub is live → ${HUB_URL:-https://hub.${DOMAIN:-}}"
+  fi
+  return 0
+}
+# Tally the board into APPS_* (fork-free; called once per render).
+_apps_counts() {
+  APPS_UP=0; APPS_BUILDING=0; APPS_QUEUED=0; APPS_DEGRADED=0; APPS_FAILED=0
+  local n
+  for n in "${APP_ORDER[@]}"; do
+    case "${APP_STATE[$n]:-queued}" in
+      up)       APPS_UP=$((APPS_UP+1)) ;;
+      building) APPS_BUILDING=$((APPS_BUILDING+1)) ;;
+      failed)   APPS_FAILED=$((APPS_FAILED+1)) ;;
+      degraded) APPS_DEGRADED=$((APPS_DEGRADED+1)) ;;
+      *)        APPS_QUEUED=$((APPS_QUEUED+1)) ;;
+    esac
+  done
+  APPS_TOTAL=${#APP_ORDER[@]}
+  return 0
+}
 _ui_render() {
   [ "$UI_RICH" = 1 ] || return 0
   local E=$'\033' pct barw brand badge mid warns i st name sec icon col line f pad namep hdr rw
-  pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
+  local countseg failstr avail cap shown more n stt det ic cc
   barw=$(( UI_COLS - 12 )); [ "$barw" -lt 12 ] && barw=12; [ "$barw" -gt 64 ] && barw=64
   brand=" ◆ ubuntu-dokploy-ai · one-command provisioner "
   badge="[ ${UI_MODE_LABEL} ]"
   mid=$(( UI_COLS - ${#brand} - ${#badge} - 1 )); [ "$mid" -lt 1 ] && mid=1
   printf -v pad '%*s' "$mid" ''
   warns=""; [ "${#WARNINGS[@]}" -gt 0 ] && warns="   ${E}[38;5;214m⚠ ${#WARNINGS[@]}${E}[0m"
-  _spin; _set_elapsed _EL; _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw"
+  _spin; _set_elapsed _EL
+  # In the app-deploy phase the big bar + header counter track apps coming up
+  # (the thing actually progressing); otherwise they track setup steps.
+  if [ "$APPS_PHASE" = 1 ] && [ "${#APP_ORDER[@]}" -gt 0 ]; then
+    _apps_counts
+    pct=$(( APPS_TOTAL>0 ? APPS_UP*100/APPS_TOTAL : 0 ))
+    _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw"
+    countseg="${E}[38;5;120m▣ ${APPS_UP}/${APPS_TOTAL} apps${E}[0m"
+  else
+    pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
+    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw"
+    countseg="${E}[38;5;120m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"
+  fi
   # Build the WHOLE frame in one string (raw ESC bytes) and write it with ONE
   # printf — no $() subshell forks and one terminal write, so the ticker stays
   # on cadence even while a heavy step saturates the box.
   f="${E}[H"
   f+="${E}[K${E}[48;5;53;1;97m${brand}${pad}${E}[38;5;219m${badge} ${E}[0m"$'\n'
-  f+="${E}[K  ${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${E}[38;5;120m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m${warns}"$'\n'
+  f+="${E}[K  ${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
   f+="${E}[K  ${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m"$'\n'
   f+="${E}[K"$'\n'
-  for ((i=1;i<=STEP_TOTAL;i++)); do
-    st="${STEP_ST[$i]:-pending}"; name="${STEP_NAMES[$i]:-}"; sec="${STEP_SEC[$i]:-}"
-    case "$st" in
-      done)    icon="${E}[38;5;120m✔${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;240m${sec}${E}[0m" ;;
-      running) icon="${E}[1;38;5;213m${_SPINCH}${E}[0m"; col="${E}[1;97m"; _set_elapsed _ELS "$STEP_T0"; sec="${E}[38;5;213m${_ELS}${E}[0m" ;;
-      warn)    icon="${E}[38;5;214m▲${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;214m${sec}${E}[0m" ;;
-      skip)    icon="${E}[38;5;244m⤼${E}[0m"; col="${E}[38;5;244m"; sec="${E}[38;5;240mskipped${E}[0m" ;;
-      *)       icon="${E}[38;5;238m○${E}[0m"; col="${E}[38;5;242m"; sec="" ;;
-    esac
-    printf -v namep '%-42s' "$name"
-    f+="${E}[K  ${icon} ${col}${namep}${E}[0m ${sec}"$'\n'
-  done
-  if [ "$STEP_NO" -ge "$STEP_TOTAL" ]; then hdr=apps; else hdr=activity; fi
-  rw=$(( UI_COLS>14 ? UI_COLS-14 : 4 )); _set_rule "$rw"
-  f+="${E}[K${E}[38;5;53m─ ${E}[38;5;219m${hdr} ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
-  for ((i=0;i<ACT_MAX;i++)); do
-    line="${ACT[$i]:-}"
-    f+="${E}[K${E}[38;5;245m${line:0:$((UI_COLS-1))}${E}[0m"$'\n'
-  done
+  if [ "$APPS_PHASE" = 1 ]; then
+    # ---- setup checklist collapses to one line; the live app board takes over ----
+    if [ "$HUB_LIVE" = 1 ]; then
+      f+="${E}[K  ${E}[1;38;5;120m✔ hub is live → ${E}[1;4;38;5;159mhttps://hub.${DOMAIN}${E}[0m"$'\n'
+    else
+      f+="${E}[K  ${E}[38;5;120m✔${E}[0m ${E}[38;5;250mhost + platform ready${E}[38;5;240m · ${STEP_DONE}/${STEP_TOTAL} steps${E}[0m"$'\n'
+    fi
+    rw=$(( UI_COLS>18 ? UI_COLS-18 : 4 )); _set_rule "$rw"
+    f+="${E}[K${E}[38;5;53m─ ${E}[38;5;219mdeploying apps ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
+    if [ "${#APP_ORDER[@]}" -eq 0 ]; then
+      # No snapshot yet — show the intro / recent activity lines.
+      for ((i=0;i<ACT_MAX;i++)); do
+        line="${ACT[$i]:-}"
+        f+="${E}[K${E}[38;5;245m${line:0:$((UI_COLS-1))}${E}[0m"$'\n'
+      done
+    else
+      # Row budget so the frame never exceeds the terminal (no scroll): rows are
+      # header(4) + summary(1) + divider(1) + footer(1) + safety(1) = 8.
+      avail=$(( UI_ROWS - 8 )); [ "$avail" -lt 3 ] && avail=3
+      # When truncating, one row is spent on the "… and N more" line, so cap the
+      # app rows one lower — otherwise the footer's trailing newline lands on the
+      # very bottom row and scrolls the alt-screen (corrupting the frame).
+      cap=$avail; [ "${#APP_ORDER[@]}" -gt "$avail" ] && cap=$(( avail - 1 )); [ "$cap" -lt 1 ] && cap=1
+      shown=0; more=0
+      for n in "${APP_ORDER[@]}"; do
+        if [ "$shown" -ge "$cap" ]; then more=$((more+1)); continue; fi
+        stt="${APP_STATE[$n]:-queued}"; det="${APP_DETAIL[$n]:-}"
+        case "$stt" in
+          up)       ic="${E}[38;5;120m✔${E}[0m";            cc="${E}[38;5;252m" ;;
+          building) ic="${E}[1;38;5;213m${_SPINCH}${E}[0m"; cc="${E}[1;97m" ;;
+          failed)   ic="${E}[1;38;5;203m✖${E}[0m";          cc="${E}[38;5;203m" ;;
+          degraded) ic="${E}[38;5;214m▲${E}[0m";            cc="${E}[38;5;214m" ;;
+          *)        ic="${E}[38;5;240m○${E}[0m";            cc="${E}[38;5;242m" ;;
+        esac
+        printf -v namep '%-34s' "${n:0:34}"
+        f+="${E}[K  ${ic} ${cc}${namep}${E}[0m ${E}[38;5;240m${det}${E}[0m"$'\n'
+        shown=$((shown+1))
+      done
+      [ "$more" -gt 0 ] && f+="${E}[K  ${E}[38;5;240m… and ${more} more${E}[0m"$'\n'
+      failstr=""; [ "$APPS_FAILED" -gt 0 ] && failstr=" ${E}[38;5;240m· ${E}[38;5;203m${APPS_FAILED} failed${E}[0m"
+      _set_elapsed _ELS "$STEP_T0"
+      f+="${E}[K  ${E}[38;5;120m✔ ${APPS_UP} up${E}[0m ${E}[38;5;240m· ${E}[1;38;5;213m${APPS_BUILDING} building${E}[0m ${E}[38;5;240m· ${E}[38;5;242m${APPS_QUEUED} queued${E}[0m${failstr}   ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_ELS}${E}[0m"$'\n'
+    fi
+  else
+    # ---- normal setup phase: the step checklist + scrolling activity panel ----
+    for ((i=1;i<=STEP_TOTAL;i++)); do
+      st="${STEP_ST[$i]:-pending}"; name="${STEP_NAMES[$i]:-}"; sec="${STEP_SEC[$i]:-}"
+      case "$st" in
+        done)    icon="${E}[38;5;120m✔${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;240m${sec}${E}[0m" ;;
+        running) icon="${E}[1;38;5;213m${_SPINCH}${E}[0m"; col="${E}[1;97m"; _set_elapsed _ELS "$STEP_T0"; sec="${E}[38;5;213m${_ELS}${E}[0m" ;;
+        warn)    icon="${E}[38;5;214m▲${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;214m${sec}${E}[0m" ;;
+        skip)    icon="${E}[38;5;244m⤼${E}[0m"; col="${E}[38;5;244m"; sec="${E}[38;5;240mskipped${E}[0m" ;;
+        *)       icon="${E}[38;5;238m○${E}[0m"; col="${E}[38;5;242m"; sec="" ;;
+      esac
+      printf -v namep '%-42s' "$name"
+      f+="${E}[K  ${icon} ${col}${namep}${E}[0m ${sec}"$'\n'
+    done
+    hdr=activity
+    rw=$(( UI_COLS>14 ? UI_COLS-14 : 4 )); _set_rule "$rw"
+    f+="${E}[K${E}[38;5;53m─ ${E}[38;5;219m${hdr} ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
+    for ((i=0;i<ACT_MAX;i++)); do
+      line="${ACT[$i]:-}"
+      f+="${E}[K${E}[38;5;245m${line:0:$((UI_COLS-1))}${E}[0m"$'\n'
+    done
+  fi
   f+="${E}[J"
   printf '%s' "$f"
 }
@@ -301,6 +405,48 @@ _run() {
   return "$_rc"
 }
 
+# Stream a command for the long app-DEPLOY phase. Unlike _stream (which repaints
+# only when a new output line arrives — so the clock freezes whenever the child
+# is quiet, and docker builds are quiet for minutes), this repaints once/second
+# regardless of output, using a single read-with-timeout loop (no ticker → no
+# terminal race). "@APP…" board snapshots feed the live app grid; anything else
+# scrolls the activity ring. Sets APPS_PHASE so _ui_render shows the board.
+# Runs the child via a FIFO so we still get its real exit code from `wait`.
+_stream_apps() {
+  APPS_PHASE=1
+  if [ "$UI_RICH" != 1 ]; then "$@" </dev/null; return $?; fi
+  local fifo rc pid _line rs
+  fifo="$(mktemp -u 2>/dev/null)" || fifo=""
+  if [ -z "$fifo" ] || ! mkfifo "$fifo" 2>/dev/null; then
+    # No FIFO available — fall back to the normal streamer (still ticks on output).
+    _stream "$@"; return $?
+  fi
+  "$@" </dev/null >"$fifo" 2>&1 &
+  pid=$!
+  exec {AFD}<"$fifo"
+  # Both ends are open now (the writer's open rendezvoused with this read-open),
+  # so unlink the name immediately — the open fds keep the pipe alive, and no
+  # exit path (Ctrl-C / SIGTERM / error mid-deploy) can leak it. Mirrors _nap_setup.
+  rm -f "$fifo" 2>/dev/null || true
+  while :; do
+    if IFS= read -r -t 1 _line <&"$AFD"; then
+      case "$_line" in
+        @APP*) _apps_update "$_line" ;;
+        "")    : ;;
+        *)     _ui_push "$_line" ;;
+      esac
+    else
+      rs=$?
+      [ "$rs" -le 128 ] && break   # <=128 = EOF/closed (child done); >128 = 1s timeout
+    fi
+    _ui_render
+  done
+  exec {AFD}<&-
+  wait "$pid"; rc=$?
+  _ui_render
+  return "$rc"
+}
+
 # ---- unified step / log / warn ------------------------------------------
 step() {
   _step_close
@@ -362,8 +508,8 @@ _ui_seed_plan() {
     names=("" "Preflight checks" "Base packages" "Base firewall" "Docker engine"
       "Dokploy platform" "Traefik hubframe middleware" "Host hardening"
       "Loopback SSH key" "Secrets & env rendering" "Cloudflare Tunnel ingress"
-      "Agentic playground fetch" "DNS pre-check" "Stack deploy via Dokploy"
-      "Waiting for apps to build & come up")
+      "Agentic playground fetch" "DNS pre-check" "Core apps — hub + essentials"
+      "AI stack — models + agentic bundle")
   fi
   local i
   for ((i=1;i<=STEP_TOTAL;i++)); do STEP_NAMES[$i]="${names[$i]:-step $i}"; STEP_ST[$i]="pending"; done
@@ -885,6 +1031,33 @@ if command -v docker >/dev/null 2>&1; then
 else
   curl -fsSL https://get.docker.com | sh
 fi
+# Pin Docker's user-network address pools BEFORE Dokploy creates the swarm and
+# the app networks. Docker's built-in pools run 172.17–172.31/16 and then SPILL
+# into 192.168.0.0/16 — which collides with common management/home LANs
+# (192.168.x) once ~16 compose networks exist, and can black-hole the host's OWN
+# SSH (a Docker bridge steals the route to the admin's subnet). Pin to
+# 10.201/10.202.0.0/16 in /24s (512 networks), clear of 172/192.168/most LANs.
+if python3 - /etc/docker/daemon.json <<'PYEOF'
+import json, os, sys
+p = sys.argv[1]
+pools = [{"base": "10.201.0.0/16", "size": 24}, {"base": "10.202.0.0/16", "size": 24}]
+try:
+    d = json.load(open(p)) if (os.path.exists(p) and os.path.getsize(p)) else {}
+except Exception:
+    d = {}
+if d.get("default-address-pools") == pools:
+    sys.exit(1)                       # already correct -> no restart needed
+d["default-address-pools"] = pools
+os.makedirs(os.path.dirname(p), exist_ok=True)
+json.dump(d, open(p, "w"), indent=2)
+sys.exit(0)                           # changed -> caller restarts docker
+PYEOF
+then
+  log "pinned Docker address pools -> 10.201/10.202.0.0/16 (prevents 192.168.x LAN collisions)"
+  _run systemctl restart docker || warn "could not restart docker after writing daemon.json"
+else
+  log "Docker address pools already pinned to 10.x."
+fi
 
 step "Dokploy platform"
 if [ -f /etc/dokploy/dokploy.sh ] || docker service ls 2>/dev/null | grep -q dokploy; then
@@ -1223,33 +1396,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 10. Deploy — Dokploy registers the admin, authenticates, and builds every app
+# 10-11. Deploy in TWO WAVES, then verify each. Wave 1 = the hub + lightweight
+# apps ("core"); wave 2 = the heavy LLM/agentic tier. Wave 2 is triggered only
+# AFTER core is up, so the multi-GB model pulls don't starve the quick apps —
+# that's what makes https://hub.$DOMAIN reachable in a couple of minutes while
+# the slow stack finishes last. Tier comes from each app's "tier" in the
+# catalog (default "core"). `-u` keeps the board's snapshots unbuffered.
 # ---------------------------------------------------------------------------
-step "Stack deploy via Dokploy"
-_stream python3 automation/dokploy_automate.py \
-  --url http://localhost:3000 \
-  --ip 127.0.0.1 \
-  --domain "$DOMAIN" \
-  --email "$ADMIN_EMAIL" \
-  --password "$ADMIN_PASSWORD" \
-  --ssh-user root \
-  --ssh-private /root/.ssh/id_rsa \
-  --ssh-public /root/.ssh/id_rsa.pub \
-  --config automation/dokploy_config.json \
-  --local-server \
-  --skip-harden \
-  $CLEAN
+APPS_PHASE=1                       # from here on the dashboard is the live app board
+HUB_URL="https://hub.$DOMAIN"
 
-# ---------------------------------------------------------------------------
-# 11. Verify + summary
-# ---------------------------------------------------------------------------
-step "Waiting for apps to build & come up"
-log "Dokploy builds the apps asynchronously — polling each until its containers"
-log "are up (or it errors). This is the long part; the box does the work."
-_stream python3 automation/utils/verify_deployment.py \
-  --url http://localhost:3000 --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" \
-  --timeout "${VERIFY_TIMEOUT:-2700}" --interval "${VERIFY_INTERVAL:-5}" || \
-  warn "one or more apps failed to come up or timed out — see the app table above and the Dokploy dashboard."
+_da_common=( --url http://localhost:3000 --ip 127.0.0.1 --domain "$DOMAIN"
+  --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD"
+  --ssh-user root --ssh-private /root/.ssh/id_rsa --ssh-public /root/.ssh/id_rsa.pub
+  --config automation/dokploy_config.json --local-server --skip-harden )
+_vf_common=( --url http://localhost:3000 --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD"
+  --config automation/dokploy_config.json --interval "${VERIFY_INTERVAL:-3}" --board )
+
+step "Core apps — hub + essentials"
+log "Deploying the hub + lightweight apps first, so $HUB_URL is reachable"
+log "in a couple of minutes; the heavy AI stack follows once these are up."
+_stream python3 automation/dokploy_automate.py "${_da_common[@]}" --tier core $CLEAN
+_stream_apps python3 -u automation/utils/verify_deployment.py "${_vf_common[@]}" \
+  --tier core --timeout "${VERIFY_CORE_TIMEOUT:-900}" || \
+  warn "one or more CORE apps did not come up — see the board and the Dokploy dashboard."
+
+step "AI stack — models + agentic bundle"
+log "Now the LLM/agentic stack: this pulls model weights and builds the bundle,"
+log "so it is the long part. $HUB_URL is already usable while this finishes."
+_stream python3 automation/dokploy_automate.py "${_da_common[@]}" --tier heavy $CLEAN || \
+  warn "heavy-tier deploy trigger reported an error — check the Dokploy dashboard."
+_stream_apps python3 -u automation/utils/verify_deployment.py "${_vf_common[@]}" \
+  --tier heavy --timeout "${VERIFY_TIMEOUT:-2700}" || \
+  warn "one or more heavy apps did not come up in time — they may still be building; check the Dokploy dashboard."
 
 if [ "$INGRESS_MODE" = "tunnel" ]; then
   DOKPLOY_ACCESS="Dokploy dashboard : https://dokploy.$DOMAIN  (behind a Traefik basic-auth gate;

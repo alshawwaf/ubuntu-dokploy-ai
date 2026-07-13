@@ -1151,6 +1151,11 @@ if __name__ == "__main__":
         "--config", default="dokploy_config.json", help="Path to apps config JSON"
     )
     parser.add_argument(
+        "--tier", default="all", choices=["all", "core", "heavy"],
+        help="Only create+deploy apps whose config 'tier' matches (default all; "
+             "entries without a 'tier' are treated as 'core').",
+    )
+    parser.add_argument(
         "--ssh-private",
         default="~/.ssh/id_rsa",
         help="Path to private SSH key (default: ~/.ssh/id_rsa)",
@@ -1483,6 +1488,13 @@ if __name__ == "__main__":
             cfg = replace_domain(cfg_raw)
             if args.app and args.app.lower() not in cfg["name"].lower():
                 print(f"Skipping {cfg['name']} (filter: {args.app})")
+                continue
+
+            # Tiered rollout: deploy the core (hub + light) apps first, then the
+            # heavy LLM/agentic tier. Entries with no "tier" default to core.
+            _apptier = (cfg.get("tier") or "core").lower()
+            if args.tier != "all" and _apptier != args.tier:
+                print(f"Skipping {cfg['name']} (tier '{_apptier}', deploying '{args.tier}').")
                 continue
 
             # Gracefully skip apps whose repo is a private SSH URL the box can't

@@ -1,6 +1,7 @@
 [
   {
     "name": "AI Guardrails Playground",
+    "tier": "heavy",
     "repo": "https://github.com/alshawwaf/ai-guardrails-demo.git",
     "domain": "guardrails.{{DOMAIN}}",
     "service": "web",
@@ -54,6 +55,7 @@
   },
   {
     "name": "OpenClaw",
+    "tier": "heavy",
     "domain": "claw.{{DOMAIN}}",
     "service": "openclaw-gateway",
     "port": 18789,
@@ -98,6 +100,7 @@
   },
   {
     "name": "CP Agentic MCP Playground",
+    "tier": "heavy",
     "repo": "https://github.com/alshawwaf/cp-agentic-mcp-playground.git",
     "envFile": "agentic",
     "service": "n8n",
