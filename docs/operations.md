@@ -10,6 +10,8 @@ Day-2 runbook for a deployed stack. For install/setup see the [README](../README
 - [Ollama model errors](#ollama-model-errors)
 - [Docker Compose project name](#docker-compose-project-name)
 - [Traefik domain labels (404s)](#traefik-domain-labels-404s)
+- [Intermittent 404s / apps flapping between 200 and 404](#intermittent-404s--apps-flapping-between-200-and-404)
+- [Core apps missing after install (only the agentic apps present)](#core-apps-missing-after-install-only-the-agentic-apps-present)
 - [Open WebUI can't reach Ollama](#open-webui-cant-reach-ollama)
 - [AI Guardrails settings database](#ai-guardrails-settings-database)
 - [AI Guardrails can't reach Ollama](#ai-guardrails-cant-reach-ollama)
@@ -127,6 +129,30 @@ sed -i 's/{{DOMAIN}}/<YOUR_DOMAIN>/g' \
 cd /etc/dokploy/compose/cp-agentic-mcp-playground-<suffix>/code
 docker stop open-webui && docker rm open-webui
 docker compose -p cp-agentic-mcp-playground-<suffix> --profile cpu up -d --no-deps open-webui
+```
+
+## Intermittent 404s / apps flapping between 200 and 404
+
+If an app's host serves 200 sometimes and 404 other times (especially after several redeploy cycles), it usually means **two Traefik routers carry the same `Host()` rule**, so Traefik binds the rule to a service non-deterministically. Diagnose:
+
+```bash
+# count routers per host — legit is 2 (web + websecure); >2 means duplicate domains
+docker exec dokploy-traefik wget -qO- http://127.0.0.1:8080/api/http/routers \
+  | python3 -c 'import json,sys,collections; c=collections.Counter((r.get("rule") or "") for r in json.load(sys.stdin) if r.get("rule")); print({k:v for k,v in c.items() if v>2})'
+
+# DB truth — any host with more than one domain row for a compose
+PG=$(docker ps -qf name=dokploy-postgres | head -1)
+docker exec "$PG" psql -U dokploy -d dokploy -tAc "select host,count(*) from domain group by host having count(*)>1"
+```
+
+Root cause was Dokploy's non-idempotent `domain.create` (each deploy added another domain row per host). Fixed in the automation by `sync_domains()`, which deletes then recreates exactly the configured set every deploy — so it also self-heals any duplicates. Re-running the installer (or a single `--app "<name>"` redeploy) converges the host back to one router set.
+
+## Core apps missing after install (only the agentic apps present)
+
+If a full install finishes "complete" but only the heavy/agentic apps (AI Guardrails, CP Agentic, OpenClaw) exist and the 8 core apps are gone, the second (heavy) deploy wave clean-slated the environment and wiped the core tier. Fixed: the heavy wave now runs with `--no-purge` (adds to the core deployment instead of wiping it) and the final verify covers `--tier all`. If you see it on an older checkout, `git pull` and re-run `install.sh` — or deploy the heavy tier manually with `--no-purge`:
+
+```bash
+python3 automation/dokploy_automate.py <common args> --tier heavy --no-purge
 ```
 
 ## Open WebUI can't reach Ollama
