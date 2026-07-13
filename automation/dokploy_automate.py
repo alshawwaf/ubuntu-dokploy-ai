@@ -563,12 +563,23 @@ def create_compose(url, cookies, project_id, environment_id, name, server_id):
 
 
 def get_all_compose_ids(url, cookies, environment_id):
-    """Fetch all compose apps for a given environment."""
-    trpc_url = f"{url}/api/trpc/compose.all?batch=1&input=%7B%220%22%3A%7B%22json%22%3A%7B%22environmentId%22%3A%22{environment_id}%22%7D%7D%7D"
+    """Fetch all compose apps for a given environment.
+
+    NOTE: `compose.all` does NOT exist on this Dokploy build — it 404s ("No
+    procedure found on path compose.all"), which used to make this return [] on
+    every call, so the deploy loop thought NO apps existed and RE-CREATED every
+    app as a brand-new compose project each run (duplicate images/projects, and
+    apps that don't stay up). Read the environment instead (same path verify_
+    deployment.discover_composes uses), which lists every compose reliably.
+    """
+    import urllib.parse
+    q = urllib.parse.quote(json.dumps({"0": {"json": {"environmentId": environment_id}}}))
+    trpc_url = f"{url}/api/trpc/environment.one?batch=1&input={q}"
     try:
-        resp = requests.get(trpc_url, cookies=cookies, timeout=10).json()
-        apps = resp[0]["result"]["data"]["json"]
-        return [{"name": a["name"], "composeId": a["composeId"]} for a in apps]
+        resp = requests.get(trpc_url, cookies=cookies, timeout=15).json()
+        env = resp[0]["result"]["data"]["json"]
+        return [{"name": c["name"], "composeId": c["composeId"]}
+                for c in env.get("compose", [])]
     except Exception as e:
         print(f"Error fetching compose apps: {e}")
         return []

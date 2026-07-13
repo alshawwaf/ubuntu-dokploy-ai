@@ -137,6 +137,30 @@ def board_state(st, run, tot):
     return "queued"
 
 
+def compose_hosts(session, url, compose_id):
+    """The hostnames Dokploy routes to this compose (for the reachability probe)."""
+    try:
+        doms = _trpc_get(session, url, "domain.byComposeId", {"composeId": compose_id})
+        return [d["host"] for d in doms if d.get("host")]
+    except Exception:
+        return []
+
+
+def probe_host(host):
+    """HTTP status hitting the local Traefik with this Host header (0 on error).
+
+    Exercises routing exactly as the Cloudflare Tunnel / LE edge does — a 404
+    means Traefik has no router for the host (the app isn't actually served),
+    which container-count checks alone don't catch. Any other code (200/301/302/
+    401/403…) means it IS routed. No redirects followed, short timeout.
+    """
+    try:
+        return requests.get("http://localhost/", headers={"Host": host},
+                            timeout=8, allow_redirects=False).status_code
+    except Exception:
+        return 0
+
+
 def verify(url, email, password, timeout, interval, board=False, wanted=None):
     s = requests.Session()
     if not login(s, url, email, password):
@@ -219,28 +243,44 @@ def verify(url, email, password, timeout, interval, board=False, wanted=None):
 
     # ---- final report ----
     print("\n  ── app verification ──")
-    ok = degraded = failed = 0
+    ok = degraded = failed = unreachable = 0
     rows = []
     for a in sorted(apps, key=lambda x: x["name"]):
         st = a["status"]
         run = a.get("run", 0)
         tot = a.get("tot", 0)
         if st in TERMINAL_BAD:
-            verdict, failed = "FAILED", failed + 1
+            verdict = "FAILED"; failed += 1
         elif st in TERMINAL_OK and run > 0:
-            verdict, ok = "up", ok + 1
+            verdict = "up"; ok += 1
         elif st in TERMINAL_OK and run == 0:
-            verdict, degraded = "no-containers", degraded + 1
+            verdict = "no-containers"; degraded += 1
         else:
-            verdict, degraded = "timeout", degraded + 1
+            verdict = "timeout"; degraded += 1
+        # Reachability: an app that's "up" must also SERVE — Traefik has to route
+        # its host (a 404 means it built + ran but isn't actually reachable). We
+        # can't call the run done if the site is inaccessible.
+        reach = ""
+        if verdict == "up":
+            hosts = compose_hosts(s, url, a["composeId"])
+            if not hosts:
+                reach = "(no domain)"
+            else:
+                codes = [(h, probe_host(h)) for h in hosts]
+                bad = [f"{h}→{c or 'ERR'}" for h, c in codes if not c or c == 404]
+                if bad:
+                    verdict = "unreachable"; ok -= 1; unreachable += 1
+                    reach = "  ✖ " + " ".join(bad)
+                else:
+                    reach = "  " + " ".join(f"{h}→{c}" for h, c in codes)
         mark = {"up": "✔", "FAILED": "✖", "no-containers": "▲",
-                "timeout": "▲"}.get(verdict, "·")
-        rows.append(f"  {mark} {a['name'][:34]:34} {verdict:14} "
-                    f"deploy={st:8} containers={run}/{tot}")
+                "timeout": "▲", "unreachable": "✖"}.get(verdict, "·")
+        rows.append(f"  {mark} {a['name'][:34]:34} {verdict:12} "
+                    f"deploy={st:8} containers={run}/{tot}{reach}")
     print("\n".join(rows))
-    print(f"\n  result: {ok} up, {degraded} degraded/timeout, {failed} failed "
-          f"(of {len(apps)}).")
-    return 0 if (failed == 0 and degraded == 0) else 1
+    print(f"\n  result: {ok} up, {degraded} degraded/timeout, {unreachable} "
+          f"unreachable, {failed} failed (of {len(apps)}).")
+    return 0 if (failed == 0 and degraded == 0 and unreachable == 0) else 1
 
 
 if __name__ == "__main__":
