@@ -152,7 +152,7 @@ _BAR_KEY=""; _BAR_OUT=""
 _set_bar() {
   local done="$1" total="$2" width="$3" key="$1|$2|$3"
   [ "$key" = "$_BAR_KEY" ] && return 0
-  local E=$'"'"'\033'"'"' fill i ci out
+  local E=$'\033' fill i ci out
   local ramp=(57 63 99 135 171 207 213 219) n=8
   out="${E}[38;5;239m▕"
   if [ "$total" -gt 0 ]; then fill=$(( done*width/total )); else fill=0; fi
