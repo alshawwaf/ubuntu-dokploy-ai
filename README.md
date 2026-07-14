@@ -1,81 +1,134 @@
-# Ubuntu Dokploy AI
+<div align="center">
 
-**One command turns a fresh Ubuntu server into the full Check Point AI & agentic demo stack** — [Dokploy](https://dokploy.com) PaaS, Traefik TLS, and ~15 apps: hardened, deployed, and verified for you.
+# ⚡ Ubuntu Dokploy AI
 
-[![Part of the Dev Hub ecosystem](https://img.shields.io/badge/part_of-Dev_Hub_ecosystem-8B5CF6?style=flat-square)](https://github.com/alshawwaf/dev-hub)
-![Ubuntu 22.04 / 24.04](https://img.shields.io/badge/Ubuntu-22.04_·_24.04-E95420?style=flat-square&logo=ubuntu&logoColor=white)
-![One-command install](https://img.shields.io/badge/install-one_command-22C55E?style=flat-square&logo=gnubash&logoColor=white)
+**One command turns a fresh Ubuntu server into the full Check Point AI & agentic demo stack** —
+[Dokploy](https://dokploy.com) PaaS · Traefik TLS · **~15 apps**, hardened, deployed & verified for you.
+
+<a href="https://github.com/alshawwaf/dev-hub"><img alt="Part of the Dev Hub ecosystem" src="https://img.shields.io/badge/part_of-Dev_Hub_ecosystem-8B5CF6?style=flat-square"></a>
+<img alt="Ubuntu 22.04 / 24.04" src="https://img.shields.io/badge/Ubuntu-22.04_·_24.04-E95420?style=flat-square&logo=ubuntu&logoColor=white">
+<img alt="One-command install" src="https://img.shields.io/badge/install-one_command-22C55E?style=flat-square&logo=gnubash&logoColor=white">
+<img alt="Prebuilt images" src="https://img.shields.io/badge/images-prebuilt_on_GHCR-2496ED?style=flat-square&logo=docker&logoColor=white">
+
+<sub>
+
+**Built with**&nbsp;
+<img alt="Docker" src="https://img.shields.io/badge/-Docker-2496ED?style=flat-square&logo=docker&logoColor=white">
+<img alt="Dokploy" src="https://img.shields.io/badge/-Dokploy-A855F7?style=flat-square">
+<img alt="Traefik" src="https://img.shields.io/badge/-Traefik-24A1C1?style=flat-square&logo=traefikproxy&logoColor=white">
+<img alt="Cloudflare Tunnel" src="https://img.shields.io/badge/-Cloudflare_Tunnel-F38020?style=flat-square&logo=cloudflare&logoColor=white">
+<img alt="Let's Encrypt" src="https://img.shields.io/badge/-Let's_Encrypt-003A70?style=flat-square&logo=letsencrypt&logoColor=white">
+<img alt="Python" src="https://img.shields.io/badge/-Python-3776AB?style=flat-square&logo=python&logoColor=white">
+<img alt="Bash" src="https://img.shields.io/badge/-Bash-4EAA25?style=flat-square&logo=gnubash&logoColor=white">
+&nbsp;·&nbsp;**Deploys**&nbsp;
+<img alt="n8n" src="https://img.shields.io/badge/-n8n-EA4B71?style=flat-square&logo=n8n&logoColor=white">
+<img alt="Ollama" src="https://img.shields.io/badge/-Ollama-000000?style=flat-square&logo=ollama&logoColor=white">
+<img alt="Langflow" src="https://img.shields.io/badge/-Langflow-7C3AED?style=flat-square">
+<img alt="Flowise" src="https://img.shields.io/badge/-Flowise-38BDF8?style=flat-square">
+<img alt="Qdrant" src="https://img.shields.io/badge/-Qdrant-DC244C?style=flat-square">
+<img alt="PostgreSQL" src="https://img.shields.io/badge/-PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white">
+
+</sub>
+
+</div>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com
+curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh \
+  | sudo bash -s -- --domain yourdomain.com
 ```
 
-You bring **Ubuntu and a domain**. The script installs Docker and Dokploy, generates every secret, sets up ingress (Let's Encrypt **or** Cloudflare Tunnel), deploys the whole suite from one config file, and verifies every app actually serves before it says "done". Images are **prebuilt on GHCR** — the box pulls, it never compiles. The run **survives SSH drops**, shows a **live dashboard** while it works, and tears everything down again with `--uninstall`.
+> [!NOTE]
+> **You bring Ubuntu and a domain — that's the entire prerequisite list.** The script installs Docker and Dokploy, generates every secret, sets up ingress (Let's Encrypt **or** Cloudflare Tunnel), deploys the suite, and verifies every app actually serves before saying "done". Runs are **idempotent** and **self-updating**, images are **prebuilt on GHCR** (the box pulls, it never compiles), and the run **survives SSH drops**.
+
+```mermaid
+flowchart LR
+    U["🌍 you"] -->|"https:// app.yourdomain.com"| E["Cloudflare edge (tunnel)<br/>or direct 80/443 (Let's Encrypt)"]
+    E --> T["Traefik<br/>TLS + routing"]
+    T --> H["🖥️ Dev Hub<br/>hub."]
+    T --> A["🤖 Agentic stack<br/>n8n · chat · flowise · langflow"]
+    T --> P["🧩 10+ more apps<br/>policypilot · dcsim · guardrails · …"]
+    DK["⚙️ Dokploy PaaS"] -.deploys + manages.-> T
+    A --- I[("internal only<br/>Ollama · Postgres · Qdrant · Langfuse")]
+
+    classDef edge fill:#F38020,stroke:#94400f,color:#fff
+    classDef proxy fill:#24A1C1,stroke:#0e5162,color:#fff
+    classDef app fill:#8B5CF6,stroke:#4c2d8f,color:#fff
+    classDef paas fill:#22C55E,stroke:#116931,color:#fff
+    classDef db fill:#475569,stroke:#1e293b,color:#fff
+    class E edge
+    class T proxy
+    class H,A,P app
+    class DK paas
+    class I db
+```
 
 **Contents:**
-[What you get](#what-you-get) ·
-[Quick start](#quick-start) ·
-[Prerequisites](#prerequisites) ·
-[How it works](#how-installsh-works) ·
-[Live dashboard](#the-live-dashboard) ·
-[Configuration](#configuration) ·
-[Access](#accessing-your-stack) ·
-[Uninstall](#uninstall) ·
-[Security](#security) ·
-[Reference](#reference) ·
-[Repository layout](#repository-layout) ·
-[Troubleshooting](#operations--troubleshooting)
+[What you get](#-what-you-get) ·
+[Quick start](#-quick-start) ·
+[Prerequisites](#-prerequisites) ·
+[How it works](#%EF%B8%8F-how-installsh-works) ·
+[Live dashboard](#%EF%B8%8F-the-live-dashboard) ·
+[Configuration](#-configuration) ·
+[Access](#-accessing-your-stack) ·
+[Uninstall](#-uninstall) ·
+[Security](#-security) ·
+[Reference](#-reference) ·
+[Repository layout](#%EF%B8%8F-repository-layout) ·
+[Troubleshooting](#-operations--troubleshooting)
 
 ---
 
-## What you get
+## 🧰 What you get
 
 Every app is published at its own `https://<app>.<DOMAIN>` subdomain via Traefik. The catalog, domains, and ports live in [`automation/dokploy_config.json`](automation/dokploy_config.json) — that file is the source of truth; this table is a snapshot.
 
 | App | URL | What it is |
 |---|---|---|
-| **Dev Hub** | `hub.<DOMAIN>` | macOS-desktop-style portal that ties the suite together and embeds each app in a window |
-| **CP Agentic MCP Playground** | `n8n.` · `chat.` · `flowise.` · `langflow.<DOMAIN>` | Build AI agents (n8n, Open WebUI, Flowise, Langflow) over Check Point MCP servers, with Langfuse tracing at `trace.<DOMAIN>` |
-| **PolicyPilot** | `policypilot.<DOMAIN>` | Turn plain-language / ticket requests into safe Check Point access-policy changes |
-| **Drawbridge** | `dcsim.<DOMAIN>` | Datacenter Simulator serving Check Point / CloudGuard-format datacenter feeds for PoV demos |
-| **AI Guardrails Playground** | `guardrails.<DOMAIN>` | Test LLM prompt-injection / jailbreak guardrails across providers |
-| **AI-Infra-Guard** | `aig.<DOMAIN>` | AI red-teaming: MCP security scanning + jailbreak evaluation |
-| **Threat Prevention Server** | `threat.<DOMAIN>` | Check Point threat-prevention demo / data server |
-| **Training Portal** | `training.<DOMAIN>` | Hands-on lab portal (Apache Guacamole remote access) |
-| **AI Basic Training** | `learn.<DOMAIN>` | Introductory AI / security training portal |
-| **Docs to Swagger** | `swagger.<DOMAIN>` | Convert Check Point API docs into browsable OpenAPI / Swagger |
-| **Identity Provider (IdP)** | `idp.<DOMAIN>` | SAML / SCIM Identity Provider simulator for SSO demos |
-| **OpenClaw** | `claw.<DOMAIN>` | Third-party agentic browser, embedded in the hub |
-| **Script Builder** | `scriptbuilder.<DOMAIN>` | Check Point script builder (private repo — see [Private repositories](#private-repositories-script-builder)) |
-| Ollama · PostgreSQL · Qdrant · Langfuse | *internal* | Backends for the agentic stack — never exposed to the internet |
+| 🖥️ **Dev Hub** | `hub.<DOMAIN>` | macOS-desktop-style portal that ties the suite together and embeds each app in a window |
+| 🤖 **CP Agentic MCP Playground** | `n8n.` · `chat.` · `flowise.` · `langflow.<DOMAIN>` | Build AI agents (n8n, Open WebUI, Flowise, Langflow) over Check Point MCP servers — Langfuse tracing at `trace.<DOMAIN>` |
+| 🎫 **PolicyPilot** | `policypilot.<DOMAIN>` | Turn plain-language / ticket requests into safe Check Point access-policy changes |
+| 🏗️ **Drawbridge** | `dcsim.<DOMAIN>` | Datacenter Simulator serving Check Point / CloudGuard-format datacenter feeds for PoV demos |
+| 🛡️ **AI Guardrails Playground** | `guardrails.<DOMAIN>` | Test LLM prompt-injection / jailbreak guardrails across providers |
+| 🔴 **AI-Infra-Guard** | `aig.<DOMAIN>` | AI red-teaming: MCP security scanning + jailbreak evaluation |
+| 🚨 **Threat Prevention Server** | `threat.<DOMAIN>` | Check Point threat-prevention demo / data server |
+| 🎓 **Training Portal** | `training.<DOMAIN>` | Hands-on lab portal (Apache Guacamole remote access) |
+| 📖 **AI Basic Training** | `learn.<DOMAIN>` | Introductory AI / security training portal |
+| 📜 **Docs to Swagger** | `swagger.<DOMAIN>` | Convert Check Point API docs into browsable OpenAPI / Swagger |
+| 🪪 **Identity Provider (IdP)** | `idp.<DOMAIN>` | SAML / SCIM Identity Provider simulator for SSO demos |
+| 🦀 **OpenClaw** | `claw.<DOMAIN>` | Third-party agentic browser, embedded in the hub |
+| 🔒 **Script Builder** | `scriptbuilder.<DOMAIN>` | Check Point script builder (private repo — see [Private repositories](#-private-repositories-script-builder)) |
+| 🗄️ Ollama · PostgreSQL · Qdrant · Langfuse | *internal* | Backends for the agentic stack — never exposed to the internet |
 
-**Preconfigured agents.** The agentic app auto-imports ready-to-run n8n workflows on deploy: a Docker MCP Gateway fronting every Check Point MCP server (a direct-connection agent and a `*-via-gateway` twin for each), plus PolicyPilot and Dev Hub agents — bearer tokens and `<DOMAIN>` substituted at import time. See [cp-agentic-mcp-playground](https://github.com/alshawwaf/cp-agentic-mcp-playground), [PolicyPilot](https://github.com/alshawwaf/PolicyPilot), and [dev-hub](https://github.com/alshawwaf/dev-hub). For the wider story — audience, architecture, the MCP fleet — read [docs/PLATFORM_OVERVIEW.md](docs/PLATFORM_OVERVIEW.md).
+> [!TIP]
+> **Preconfigured agents, ready on first login.** The agentic app auto-imports ready-to-run n8n workflows on deploy: a Docker MCP Gateway fronting every Check Point MCP server (a direct-connection agent and a `*-via-gateway` twin for each), plus PolicyPilot and Dev Hub agents — bearer tokens and `<DOMAIN>` substituted at import time. For the wider story — audience, architecture, the MCP fleet — read [docs/PLATFORM_OVERVIEW.md](docs/PLATFORM_OVERVIEW.md).
 
 ---
 
-## Quick start
+## 🚀 Quick start
 
-There are two ingress modes — pick the one that matches your host:
+Two ingress modes — pick the one that matches your host:
 
 | Mode | Use when | How apps get TLS |
 |---|---|---|
-| `letsencrypt` *(default)* | The host has **public inbound** `80`/`443` (VPS, cloud VM) | Traefik issues Let's Encrypt certs via HTTP-01; a wildcard DNS `A` record points at the host |
-| `tunnel` | The host has **no public inbound** (home server, NAT, CGNAT) | A Cloudflare Tunnel dials out to Cloudflare's edge; edge TLS is free — no port-forwarding, no public `A` record |
+| 🌐 `letsencrypt` *(default)* | The host has **public inbound** `80`/`443` (VPS, cloud VM) | Traefik issues Let's Encrypt certs via HTTP-01; a wildcard DNS `A` record points at the host |
+| 🕳️ `tunnel` | The host has **no public inbound** (home server, NAT, CGNAT) | A Cloudflare Tunnel dials out to Cloudflare's edge; edge TLS is free — no port-forwarding, no public `A` record |
 
-### Public host — Let's Encrypt (default)
+### 🌐 Public host — Let's Encrypt (default)
 
-Add the wildcard `A` record (see [Prerequisites](#prerequisites)), then on the box, as root:
+Add the wildcard `A` record (see [Prerequisites](#-prerequisites)), then on the box:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com
+curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh \
+  | sudo bash -s -- --domain yourdomain.com
 ```
 
-### Private / NAT host — Cloudflare Tunnel
+### 🕳️ Private / NAT host — Cloudflare Tunnel
 
-Put your Cloudflare credentials in an answers file first (see [Configuration](#answersenv)), then:
+Put your Cloudflare credentials in an answers file first (see [Configuration](#-configuration)), then:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com --ingress tunnel --answers /path/to/answers.env
+curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh \
+  | sudo bash -s -- --domain yourdomain.com --ingress tunnel --answers /path/to/answers.env
 ```
 
 To prepare the answers file:
@@ -87,42 +140,37 @@ cp answers.env.example answers.env
 sudo ./install.sh --domain yourdomain.com --ingress tunnel --answers answers.env
 ```
 
-### The wipe → redeploy cycle
+### 🔄 The wipe → redeploy cycle
 
-The two commands for a repeatable lab. Terminate (keeping the image cache and LLM weights, so the redeploy is fast):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --uninstall --yes --keep-images --keep-models --answers /path/to/answers.env
-```
-
-Reapply:
+The two commands for a repeatable lab — terminate **keeping the image cache and LLM weights**, then reapply:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com --ingress tunnel --answers /path/to/answers.env
+# terminate (fast-cycle form)
+curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh \
+  | sudo bash -s -- --uninstall --yes --keep-images --keep-models --answers /path/to/answers.env
+
+# reapply
+curl -fsSL https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh \
+  | sudo bash -s -- --domain yourdomain.com --ingress tunnel --answers /path/to/answers.env
 ```
 
-For a wipe back to **bare Ubuntu**, swap the keep flags for `--remove-docker --purge-secrets`.
+> [!TIP]
+> **Timing:** fresh Ubuntu ≈ **15–20 min** (bandwidth-bound image pulls) · wipe→redeploy with the keep flags ≈ **6–10 min**. For a wipe back to **bare Ubuntu**, swap the keep flags for `--remove-docker --purge-secrets`.
 
-### Good to know
+**Good to know**
 
-- **Idempotent** — generated secrets persist and are reused, installs are guarded, firewall rules re-apply cleanly. Re-running redeploys the apps.
-- **Self-updating** — piped runs refresh their on-disk clone (`/opt/ubuntu-dokploy-ai`) from `main` at startup, so every run uses the latest installer.
-- **Everything is logged** — the live panel shows the tail; the full raw output of every command lands in `/var/log/dokploy-ai-install.log`.
-- **No `curl`?** Use the `wget` form: `wget -qO- https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com`.
-- **Timing** — fresh Ubuntu ≈ 15–20 min (bandwidth-bound image pulls); wipe→redeploy with the keep flags ≈ 6–10 min.
+- ♻️ **Idempotent** — generated secrets persist and are reused, installs are guarded, firewall rules re-apply cleanly. Re-running redeploys the apps.
+- ⬆️ **Self-updating** — piped runs refresh their on-disk clone (`/opt/ubuntu-dokploy-ai`) from `main` at startup; every run uses the latest installer.
+- 🧾 **Everything is logged** — the live panel shows the tail; the full raw output of every command lands in `/var/log/dokploy-ai-install.log`.
+- 📶 **No `curl`?** `wget -qO- https://raw.githubusercontent.com/alshawwaf/ubuntu-dokploy-ai/main/install.sh | sudo bash -s -- --domain yourdomain.com`
 
 ---
 
-## Prerequisites
+## 📋 Prerequisites
 
-### Both modes
+**Both modes:** Ubuntu 22.04 / 24.04 LTS with root, and a domain you control. You do **not** install Docker or anything else first — the script handles the engine, OS/Python packages, Dokploy, and every dependency. Already manage Docker yourself? Add `--skip-docker`.
 
-- **Ubuntu 22.04 / 24.04 LTS** with root (the installer runs under `sudo bash`).
-- A **domain you control**.
-
-That's the whole list. You do **not** install Docker or anything else first — the script installs the Docker engine, the OS/Python packages, Dokploy, and every dependency itself, then deploys and verifies the stack. Already manage Docker yourself? Add `--skip-docker` and the script leaves it alone.
-
-### Let's Encrypt mode
+### 🌐 Let's Encrypt mode
 
 - A **public IP** with inbound `80`/`443` reachable from the internet.
 - A **wildcard DNS `A` record** pointing at the host — the one manual step:
@@ -131,101 +179,137 @@ That's the whole list. You do **not** install Docker or anything else first — 
   Type: A    Name: *    Value: <SERVER_IP>    TTL: 3600
   ```
 
-  The installer verifies it and prints exactly what to add if it's missing, but does not create it. Traefik needs it to issue certificates for every `*.yourdomain.com` subdomain.
+> [!IMPORTANT]
+> The installer **verifies** the wildcard record and prints exactly what to add if it's missing — but it does not create it. Traefik needs it to issue certificates for every `*.yourdomain.com` subdomain.
 
-### Cloudflare Tunnel mode
+### 🕳️ Cloudflare Tunnel mode
 
-For a home server or any NAT'd/CGNAT box with no reachable inbound ports. Full walkthrough in [docs/tunnel-ingress.md](docs/tunnel-ingress.md); in brief:
+For a home server or any NAT'd/CGNAT box with no reachable inbound ports. Full walkthrough: [docs/tunnel-ingress.md](docs/tunnel-ingress.md). In brief:
 
-- The **domain hosted on Cloudflare** (nameservers pointed at Cloudflare; the free plan is fine).
-- A **Cloudflare API token** ([create one](https://dash.cloudflare.com/profile/api-tokens)) with scopes `Account > Cloudflare Tunnel > Edit`, `Zone > DNS > Edit`, `Zone > Zone > Read`, plus your **account id**. Put both in `answers.env` (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`).
-- **No port-forwarding and no `A` record** — the installer creates a proxied wildcard `CNAME` (`*.yourdomain.com` → the tunnel) and runs `cloudflared` as a systemd service.
+- The **domain hosted on Cloudflare** (nameservers on Cloudflare; the free plan is fine).
+- A **Cloudflare API token** ([create one](https://dash.cloudflare.com/profile/api-tokens)) with scopes `Account > Cloudflare Tunnel > Edit`, `Zone > DNS > Edit`, `Zone > Zone > Read`, plus your **account id** — both go in `answers.env`.
+- **No port-forwarding and no `A` record** — the installer creates a proxied wildcard `CNAME` and runs `cloudflared` as a systemd service.
 
-> **Cert depth on the free plan:** Cloudflare's free Universal SSL covers the zone apex and **one** wildcard level (`yourdomain.com` + `*.yourdomain.com`). Pass the **zone apex** as `--domain` so apps land at `<app>.yourdomain.com`. A subdomain like `--domain ai.yourdomain.com` puts apps two levels deep, where the free cert does **not** reach — the installer warns you and names the zone to use. To go deeper, enable Cloudflare Advanced Certificate Manager / Total TLS first.
+> [!WARNING]
+> **Cert depth on the free plan:** Cloudflare's free Universal SSL covers the zone apex and **one** wildcard level (`yourdomain.com` + `*.yourdomain.com`). Pass the **zone apex** as `--domain`. A subdomain like `--domain ai.yourdomain.com` puts apps two levels deep, where the free cert does **not** reach — the installer warns you and names the zone to use.
 
-### Private repositories (Script Builder)
+### 🔒 Private repositories (Script Builder)
 
-Most apps clone from public HTTPS repos and need nothing extra. **Script Builder** is the exception — it clones over SSH from a private repo, so it is **skipped by default** (a clear message, not a failure); every other app still deploys. To include it:
-
-1. Print the key the installer generated (after at least one install attempt):
-
-   ```bash
-   sudo cat /root/.ssh/id_rsa.pub
-   ```
-
-2. On GitHub: **repo → Settings → Deploy keys → Add deploy key** — paste the key, leave *Allow write access* unchecked, save.
-3. Re-run with `ALLOW_SSH_REPOS=1 sudo ./install.sh --domain yourdomain.com`.
+Most apps clone from public HTTPS repos. **Script Builder** clones over SSH from a private repo, so it is **skipped by default** (a clear message, not a failure); every other app still deploys. To include it: print the box's key with `sudo cat /root/.ssh/id_rsa.pub`, add it on GitHub as a **read-only deploy key** (repo → Settings → Deploy keys), then re-run with `ALLOW_SSH_REPOS=1`.
 
 ---
 
-## How `install.sh` works
+## ⚙️ How `install.sh` works
 
-A fixed **14-step pipeline**, each step a row on the [live dashboard](#the-live-dashboard):
+```mermaid
+flowchart LR
+    A["1–4 · host prep<br/>packages · firewall · Docker"] --> B["5–8 · platform<br/>Dokploy · Traefik · hardening"]
+    B --> C["9–12 · secrets & ingress<br/>env render · tunnel/DNS"]
+    C --> D["13 · core apps<br/>⚡ hub live in ~2 min"]
+    D --> E["14 · AI stack<br/>+ full-board verify ✔"]
+
+    classDef prep fill:#475569,stroke:#1e293b,color:#fff
+    classDef plat fill:#24A1C1,stroke:#0e5162,color:#fff
+    classDef sec fill:#F59E0B,stroke:#92400e,color:#fff
+    classDef core fill:#22C55E,stroke:#116931,color:#fff
+    classDef ai fill:#8B5CF6,stroke:#4c2d8f,color:#fff
+    class A prep
+    class B plat
+    class C sec
+    class D core
+    class E ai
+```
+
+A fixed **14-step pipeline**, each step a row on the [live dashboard](#%EF%B8%8F-the-live-dashboard):
 
 | # | Step | What happens |
 |---|---|---|
-| 1 | **Preflight** | Piped runs (`curl \| bash`) first **materialize the repo on disk and re-exec from the file** — a dropped SSH session can never cut off the script's source mid-run. Then root/OS checks and domain/ingress resolution. |
-| 2 | **Base packages** | Apt packages only (`python3-requests`, `python3-paramiko`, `python3-yaml`, `git`, `ufw`, `fail2ban`, `unattended-upgrades`) — no PyPI/pip. Detects the public IP and WAN interface. |
-| 3 | **Base firewall** | `ufw` default-deny; allow `22/80/443` (only `22` in tunnel mode — the tunnel dials out). |
-| 4 | **Docker engine** | Installed if absent, then Docker's address pools are **pinned to `10.201/10.202.0.0/16`** — the stock pools spill into `192.168.0.0/16` after ~16 networks and can black-hole SSH on a `192.168.x` management LAN. `--skip-docker` leaves an existing engine untouched. |
-| 5 | **Dokploy platform** | Installed if absent. On resumed installs it also verifies the **`dokploy-traefik` container** exists and creates it if not — without it every app deploys but nothing listens on 80/443. |
-| 6 | **Traefik hubframe middleware** | Strips `X-Frame-Options` / sets a permissive `frame-ancestors` CSP as a default middleware, so every app can embed in the Dev Hub desktop. |
-| 7 | **Host hardening** | `DOCKER-USER` iptables chain (all app ports forced through Traefik), `fail2ban`, unattended upgrades, root key-only sshd, an `authorized_keys` audit — and on **vmxnet3** vNICs, NIC offloads are disabled (persisted) to stop corrupted-stream SSH drops under load. Skip with `--skip-harden`. |
-| 8 | **Loopback SSH key** | Generated + self-authorized so Dokploy manages the box over `127.0.0.1` with no external exposure. |
-| 9 | **Secrets & env rendering** | [`bootstrap_secrets.py`](automation/bootstrap_secrets.py) generates strong secrets into `/etc/dokploy-ai/secrets.env` (0600, reused every run) and renders every app `.env` from [`automation/envs/`](automation/envs/). |
-| 10 | **Cloudflare Tunnel ingress** | *(tunnel mode)* [`setup_tunnel.py`](automation/setup_tunnel.py) provisions `cloudflared`, the named tunnel, the proxied wildcard `CNAME`, and the systemd service; neutralizes Traefik's forced-HTTPS redirect (edge TLS terminates at Cloudflare); gates the Dokploy dashboard behind basic auth at `dokploy.<DOMAIN>`. |
-| 11 | **Agentic playground fetch** | Fetches [cp-agentic-mcp-playground](https://github.com/alshawwaf/cp-agentic-mcp-playground) to `/opt/cp-agentic-mcp-playground`. Idempotent — an existing checkout is updated in place, never re-cloned. |
-| 12 | **DNS pre-check** | *(letsencrypt mode)* [`dns_precheck.py`](automation/dns_precheck.py) confirms the wildcard + every subdomain resolve; aborts with the exact record to add if not. `--skip-dns-check` / `--dns-warn-only` override. |
-| 13 | **Core apps — hub + essentials** | [`dokploy_automate.py`](automation/dokploy_automate.py) registers the Dokploy admin and **triggers** the hub + lightweight apps. Dokploy deploys in submission order, so **`https://hub.<DOMAIN>` is reachable in a couple of minutes**. |
-| 14 | **AI stack — models + agentic bundle** | Immediately queues the heavy tier behind core (`--tier heavy --no-purge` — it *adds* to the deployment, never clean-slates it), then runs **one verification pass over the whole board**: every app must have running containers *and* actually serve on its hosts. |
+| 1 | 🚦 **Preflight** | Piped runs (`curl \| bash`) first **materialize the repo on disk and re-exec from the file** — a dropped SSH session can never cut off the script's source mid-run. Then root/OS checks and domain/ingress resolution. |
+| 2 | 📦 **Base packages** | Apt packages only (`python3-requests`, `python3-paramiko`, `python3-yaml`, `git`, `ufw`, `fail2ban`, `unattended-upgrades`) — no PyPI/pip. Detects the public IP and WAN interface. |
+| 3 | 🧱 **Base firewall** | `ufw` default-deny; allow `22/80/443` (only `22` in tunnel mode — the tunnel dials out). |
+| 4 | 🐳 **Docker engine** | Installed if absent, then Docker's address pools are **pinned to `10.201/10.202.0.0/16`** — the stock pools spill into `192.168.0.0/16` after ~16 networks and can black-hole SSH on a `192.168.x` management LAN. |
+| 5 | ⚙️ **Dokploy platform** | Installed if absent. Resumed installs also verify the **`dokploy-traefik` container** exists and create it if not — without it every app deploys but nothing listens on 80/443. |
+| 6 | 🪟 **Traefik hubframe middleware** | Strips `X-Frame-Options` / sets a permissive `frame-ancestors` CSP as a default middleware, so every app can embed in the Dev Hub desktop. |
+| 7 | 🔐 **Host hardening** | `DOCKER-USER` iptables chain (all app ports forced through Traefik), `fail2ban`, unattended upgrades, root key-only sshd, an `authorized_keys` audit — and on **vmxnet3** vNICs, NIC offloads are disabled (persisted) to stop corrupted-stream SSH drops under load. |
+| 8 | 🗝️ **Loopback SSH key** | Generated + self-authorized so Dokploy manages the box over `127.0.0.1` with no external exposure. |
+| 9 | 🎲 **Secrets & env rendering** | [`bootstrap_secrets.py`](automation/bootstrap_secrets.py) generates strong secrets into `/etc/dokploy-ai/secrets.env` (0600, reused every run) and renders every app `.env` from [`automation/envs/`](automation/envs/). |
+| 10 | 🕳️ **Cloudflare Tunnel ingress** | *(tunnel mode)* [`setup_tunnel.py`](automation/setup_tunnel.py) provisions `cloudflared`, the named tunnel, the proxied wildcard `CNAME`, and the systemd service; gates the Dokploy dashboard behind basic auth at `dokploy.<DOMAIN>`. |
+| 11 | 🤖 **Agentic playground fetch** | Fetches [cp-agentic-mcp-playground](https://github.com/alshawwaf/cp-agentic-mcp-playground) to `/opt/cp-agentic-mcp-playground` — updated in place on re-runs, never re-cloned. |
+| 12 | 🔎 **DNS pre-check** | *(letsencrypt mode)* [`dns_precheck.py`](automation/dns_precheck.py) confirms the wildcard + every subdomain resolve; aborts with the exact record to add if not. |
+| 13 | ⚡ **Core apps — hub + essentials** | [`dokploy_automate.py`](automation/dokploy_automate.py) registers the Dokploy admin and **triggers** the hub + lightweight apps. Dokploy deploys in submission order — **`https://hub.<DOMAIN>` is reachable in a couple of minutes**. |
+| 14 | 🧠 **AI stack — models + agentic bundle** | Queues the heavy tier right behind core (`--tier heavy --no-purge` — it *adds*, never clean-slates), then **one verification pass over the whole board**: every app must have running containers *and* actually serve. |
 
-### Why installs are fast — prebuilt images
+### 🏎️ Why installs are fast — prebuilt images
 
-Every first-party app image is **prebuilt and published to GHCR** by its own repo's `publish-image.yml` workflow (buildx, `:latest` + `:sha` tags, public packages). The deploy composes *pull* (`pull_policy: always`) instead of compiling from source — which used to dominate install time with multi-GB on-box builds. The old `build:` blocks stay commented in each compose for local development.
+Every first-party app image is **prebuilt and published to GHCR** by its own repo's `publish-image.yml` workflow (buildx, `:latest` + `:sha`, public packages). The deploy composes *pull* (`pull_policy: always`) instead of compiling from source — which used to dominate install time with multi-GB on-box builds. The old `build:` blocks stay commented in each compose for local development.
 
-**LLM model weights are fire-and-forget**: the download is triggered during the deploy and continues in the background after "Provisioning complete" — chat/agent apps are up immediately and answer prompts once their model lands. Watch progress with `docker logs -f ollama-pull-models-cpu`; a model appears in `ollama list` when ready. Uninstalling with `--keep-models` makes the next pull a no-op.
+> [!NOTE]
+> **LLM model weights are fire-and-forget.** The download is triggered during the deploy and continues in the background after "Provisioning complete" — chat/agent apps are up immediately and answer prompts once their model lands. Watch with `docker logs -f ollama-pull-models-cpu`; a model shows in `ollama list` when ready. Uninstalling with `--keep-models` makes the next pull a no-op.
 
 ---
 
-## The live dashboard
+## 🖥️ The live dashboard
 
-The installer picks a renderer automatically:
+```text
+  ◆ ubuntu-dokploy-ai · one-command provisioner            [ INSTALL · tunnel ]
+  yourdomain.com · host · Ubuntu 24.04    ◷ 03:15   ▣ 7/11 apps
+  overall  ▕██████████████████████████░░▏ 92%  ✓ 13/14
+  apps     ▕██████████████████░░░░░░░░░░▏ 63%  ▣ 7/11
 
-- **Rich dashboard** (interactive terminals) — painted in place on the *alternate screen*, so your shell and scrollback stay untouched. It **detects your real window size even through sudo's pty** and centers itself horizontally and vertically.
-- **Plain mode** (piped output, `nohup`, dumb terminals) — clean numbered-step lines that read well in a log. Force with `--plain` or `NO_RICH_UI=1`.
+  ✔ hub is live → https://hub.yourdomain.com
+  ─ deploying apps ────────────────────────────────────────────
+  ✔ Dev Hub                 3/3        ✔ PolicyPilot        1/1
+  ✔ Training Portal         6/6        ⠦ CP Agentic MCP    28/36
+  ✔ Drawbridge              1/1        ○ OpenClaw           0/0
 
-The rich dashboard shows:
+  ╭─ AI stack — models + agentic bundle · live output ────────╮
+  │ pulling ghcr.io/…/cp-agentic-n8n:latest                    │
+  │ overall progress: 9 out of 11 tasks                        │
+  ╰─ full log → /var/log/dokploy-ai-install.log · d hides ─────╯
+```
 
-- The **14-step checklist** — animated spinner on the running step; `✔` done / `▲` warned / `⤼` skipped / `○` pending, each with its duration.
-- A **contained live-output box** titled with the running step: output tail-follows *inside* the frame (the screen never scrolls), progress-style lines (docker layers, `overall progress: N/M`, apt) **update in place** on their own row, and the bottom border points at the full log. **Press `d`** any time to collapse the box to one line and again to expand it.
-- **Two labeled progress bars** during the deploy waves: `overall` tracks the 14-step plan, `apps` tracks the live board — total progress never disappears mid-deploy.
-- The **live app board**: each app's state in real time — `○` queued · `⠦` building · `✔` up · `▲` degraded · `✖` failed — with container counts, flipping to `✔ hub is live → https://hub.<DOMAIN>` the moment the hub answers.
-- `--big` renders the whole dashboard in double-width (2×) text on terminals that support it.
+The installer picks a renderer automatically — a **rich dashboard** on interactive terminals (painted on the *alternate screen*, so your shell and scrollback stay untouched), or **plain numbered-step lines** when piped / under `nohup` (`--plain` / `NO_RICH_UI=1` to force).
+
+The rich dashboard:
+
+- 📐 **Sizes itself to your real window — even through sudo's pty** — and centers horizontally + vertically. `--big` renders double-width (2×) text.
+- ✅ The **14-step checklist** — animated spinner on the running step; `✔` done / `▲` warned / `⤼` skipped / `○` pending, each with its duration.
+- 📦 A **contained live-output box** titled with the running step: output tail-follows *inside* the frame (the screen never scrolls), progress-style lines (docker layers, apt, `overall progress: N/M`) **update in place**, and **pressing `d`** collapses/expands the box.
+- 📊 **Two labeled progress bars** during the deploy waves — `overall` tracks the 14-step plan, `apps` tracks the board.
+- 🚦 The **live app board** — `○` queued · `⠦` building · `✔` up · `▲` degraded · `✖` failed, with container counts, flipping to `✔ hub is live` the moment the hub answers.
 
 And its guarantees:
 
-- **The final view holds until you press a key — on success, failure, and uninstall.** A green `✔ provisioning complete` / `✔ uninstall complete` chip (or a red `✖ FAILED` banner naming the step) anchors under the frame until you dismiss it; then the run-summary table prints to your scrollback. Headless/CI runs and `HOLD=0` never block; `UI_HOLD_TIMEOUT` (default 600s) bounds a walk-away.
-- **Nothing prints below the dashboard** — while the frame is up, all command output diverts into `/var/log/dokploy-ai-install.log` (the box shows the tail), so stray output can't scroll or flash the screen.
-- **A dropped SSH session cannot kill the run.** The installer demotes itself to headless and finishes the deploy; re-attach with `sudo tail -f /var/log/dokploy-ai-install.log`. Want the *dashboard* to be reconnectable too? Run inside `tmux`.
-- **Verification is real.** [`verify_deployment.py`](automation/utils/verify_deployment.py) polls Dokploy's deploy status *and* the actual containers *and* probes each app's hosts through Traefik — an app counts as up only when it serves. Tune with `VERIFY_TIMEOUT` (default 2700s) and `VERIFY_INTERVAL` (default 3s).
+- ⏸️ **The final view holds until you press a key — success, failure, and uninstall alike.** A green `✔ provisioning complete` / `✔ uninstall complete` chip (or a red `✖ FAILED` banner naming the step) stays anchored under the frame until you dismiss it; then the run-summary table prints to your scrollback. Headless/CI runs never block (`HOLD=0`, `UI_HOLD_TIMEOUT` default 600s).
+- 🧹 **Nothing can print below the dashboard** — while the frame is up, all command output diverts into the run log; stray output can't scroll or flash the screen.
+- 🔌 **A dropped SSH session cannot kill the run** — the installer demotes itself to headless and finishes the deploy. Re-attach with `sudo tail -f /var/log/dokploy-ai-install.log`; run inside `tmux` if you want the dashboard itself to be reconnectable.
+- 🔬 **Verification is real** — [`verify_deployment.py`](automation/utils/verify_deployment.py) polls Dokploy's deploy status *and* the actual containers *and* probes each app's hosts through Traefik; an app counts as up only when it serves.
 
 ---
 
-## Configuration
+## 🔧 Configuration
 
 ### `answers.env`
 
-Copy [`answers.env.example`](answers.env.example) → `answers.env` (git-ignored). Only `DOMAIN` is required; everything else is optional. Bring-your-own keys you omit are reported at the end and simply leave that one integration disabled — the app still deploys.
+Copy [`answers.env.example`](answers.env.example) → `answers.env` (git-ignored). **Only `DOMAIN` is required**; everything else is optional — any bring-your-own key you omit is reported at the end and simply leaves that one integration disabled. The essentials:
 
 | Key | When | Purpose |
 |---|---|---|
 | `DOMAIN` | **required** | Root domain the apps hang off |
-| `DOKPLOY_ADMIN_EMAIL` / `DOKPLOY_ADMIN_PASSWORD` | optional | Override the Dokploy admin login (else generated + persisted) |
 | `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` | tunnel mode | Cloudflare API token + account id |
+| `AZURE_OPENAI_API_KEY` · `AZURE_OPENAI_ENDPOINT` · `AZURE_OPENAI_DEPLOYMENT` | recommended | Azure OpenAI is the default model behind every n8n agent |
+
+<details>
+<summary><b>📖 Full key list</b> — Dokploy admin, LLM providers, Check Point MCP integrations, vSphere, …</summary>
+
+<br>
+
+| Key | When | Purpose |
+|---|---|---|
+| `DOKPLOY_ADMIN_EMAIL` / `DOKPLOY_ADMIN_PASSWORD` | optional | Override the Dokploy admin login (else generated + persisted) |
 | `CLOUDFLARE_TUNNEL_NAME` | tunnel, optional | Named tunnel to create/reuse (default `devhub`) |
 | `DOKPLOY_GATE_USER` / `DOKPLOY_GATE_PASSWORD` | tunnel, optional | Basic-auth for `dokploy.<DOMAIN>` (default `admin` / the Dokploy admin password) |
 | `OPENAI_API_KEY` · `GEMINI_API_KEY` · `ANTHROPIC_API_KEY` · `LAKERA_API_KEY` | optional | LLM / guardrail provider keys for the agentic + guardrails apps |
-| `AZURE_OPENAI_API_KEY` · `AZURE_OPENAI_ENDPOINT` · `AZURE_OPENAI_DEPLOYMENT` | optional | Azure OpenAI is the default model behind every n8n agent — supply all three |
 | `AZURE_CONTENT_SAFETY_KEY` / `AZURE_CONTENT_SAFETY_ENDPOINT` | optional | Azure Content Safety for the guardrails demo |
 | `MANAGEMENT_HOST` · `MANAGEMENT_API_KEY` · `SMS_API_KEY` · `TE_API_KEY` · `REPUTATION_API_KEY` | optional | Check Point Quantum management / SMS / Threat Emulation / Reputation MCP integrations |
 | `SPARK_MGMT_*` · `HARMONY_SASE_*` · `DOC_*` · `IPS_*` | optional | Spark, Harmony SASE, product-docs, and Infinity Portal IPS MCP integrations |
@@ -235,79 +319,82 @@ Copy [`answers.env.example`](answers.env.example) → `answers.env` (git-ignored
 | `DEMO_API_KEY` / `DEMO_PROJECT_ID` | optional | Lakera Guard credentials for the AI Guardrails demo |
 | `VSPHERE_HOST` · `VSPHERE_USER` · `VSPHERE_PASSWORD` | optional | vSphere creds so the Training Portal can provision lab VMs + Guacamole consoles |
 
-### Secrets model
+</details>
+
+### 🎲 Secrets model
 
 Three buckets, all handled for you:
 
-- **Generated** — DB passwords, JWT/encryption keys, admin passwords, gateway tokens: created with strong entropy, persisted to `/etc/dokploy-ai/secrets.env`, and **reused on every re-run** so a redeploy never rotates a live database password out from under its database. An explicit value in `answers.env` overrides and re-persists.
+- **Generated** — DB passwords, JWT/encryption keys, admin passwords, gateway tokens: strong entropy, persisted to `/etc/dokploy-ai/secrets.env`, **reused on every re-run** so a redeploy never rotates a live database password out from under its database.
 - **Bring-your-own** — external provider keys from the table above.
 - **Derived** — hostnames and URLs built from `DOMAIN`.
 
-No secret is ever written to a tracked file. To print the generated Dokploy admin password:
+No secret is ever written to a tracked file. Print the generated Dokploy admin password:
 
 ```bash
 sudo awk -F= '/DOKPLOY_ADMIN_PASSWORD/{print $2}' /etc/dokploy-ai/secrets.env
 ```
 
-### Ollama models
+### 🧠 Ollama models
 
-`OLLAMA_MODELS` (and the Open WebUI default via `OPEN_WEBUI_DEFAULT_MODELS`) in `automation/envs/.env_agentic` control what gets pulled. The CPU-friendly default is a small chat model, a light tool-calling model, and an embedding model; a commented-out extended set (reasoning + guardrail-target models) ships in the file. `OLLAMA_MAX_LOADED_MODELS=2` caps resident models. See [Operations → Ollama model management](docs/operations.md#ollama-model-management).
+`OLLAMA_MODELS` (and `OPEN_WEBUI_DEFAULT_MODELS`) in `automation/envs/.env_agentic` control what gets pulled — the CPU-friendly default is a small chat model, a light tool-calling model, and an embedding model; a commented-out extended set ships in the file. `OLLAMA_MAX_LOADED_MODELS=2` caps resident models. See [Operations → Ollama model management](docs/operations.md#ollama-model-management).
 
 ---
 
-## Accessing your stack
+## 🌐 Accessing your stack
 
-Once DNS resolves and certs issue (or the tunnel connects), every app is live at `https://<app>.<DOMAIN>` — see [What you get](#what-you-get) for the full list.
+Once DNS resolves and certs issue (or the tunnel connects), every app is live at `https://<app>.<DOMAIN>` — see [What you get](#-what-you-get).
 
 The **Dokploy dashboard** depends on ingress mode:
 
-- **`letsencrypt` mode** — port `3000` is firewalled off by design. Reach it via an SSH tunnel, then open `http://localhost:3000`:
+- 🌐 **`letsencrypt`** — port `3000` is firewalled off by design; reach it via an SSH tunnel, then open `http://localhost:3000`:
 
   ```bash
   ssh -L 3000:localhost:3000 root@<SERVER_IP>
   ```
 
-- **`tunnel` mode** — published at `https://dokploy.<DOMAIN>` behind a Traefik basic-auth gate (user `admin`, password = the Dokploy admin password, overridable via `DOKPLOY_GATE_USER` / `DOKPLOY_GATE_PASSWORD`).
+- 🕳️ **`tunnel`** — published at `https://dokploy.<DOMAIN>` behind a Traefik basic-auth gate (user `admin`, password = the Dokploy admin password).
 
 ---
 
-## Uninstall
+## 🧹 Uninstall
 
-Full teardown of everything the installer put on the host, with the same live dashboard (9 steps) and the same hold-until-keypress ending:
+Full teardown with the same live dashboard (9 steps) and the same hold-until-keypress ending:
 
 ```bash
 sudo ./install.sh --uninstall [--answers answers.env] [--yes] \
                   [--keep-images] [--keep-models] [--purge-secrets] [--remove-docker]
 ```
 
-**What it removes:** every container, swarm state, Docker volumes/networks (and images unless `--keep-images`), `/etc/dokploy`, `cloudflared` plus the Cloudflare **tunnel and only the DNS records pointing at it** (never anything else in the zone), the agentic clone, rendered `.env`/compose files, and the loopback `authorized_keys` entry.
-
-**What it keeps:** host hardening (ufw/fail2ban/sshd/unattended-upgrades) is **always** kept — dropping it would expose the box. The Docker engine and the secrets store are kept unless you pass the matching purge flag. **Your `--answers` file is never deleted** — the uninstall only *reads* it (for the Cloudflare credentials), even with `--purge-secrets`.
-
 | Flag | Effect |
 |---|---|
-| `--yes` | Skip the interactive `type "yes"` confirmation. **Required** for non-interactive uninstalls |
+| `--yes` | Skip the interactive `type "yes"` confirmation — **required** for non-interactive runs |
 | `--keep-images` | Keep Docker images + build cache — a reinstall reuses the local cache |
-| `--keep-models` | Keep the LLM weight volumes (Ollama model store) — the next install skips the multi-GB model downloads. Pair with `--keep-images` for the fastest cycle |
-| `--purge-secrets` | Delete the *generated* secrets store (`/etc/dokploy-ai/secrets.env`) only — never your answers file; the next install regenerates all passwords |
+| `--keep-models` | Keep the LLM weight volumes — the next install skips the multi-GB model downloads |
+| `--purge-secrets` | Delete the *generated* secrets store only — **never your answers file**; the next install regenerates all passwords |
 | `--remove-docker` | `apt purge` the Docker engine and remove `/var/lib/docker` + `/var/lib/containerd` |
 | `--answers <file>` | Read (never modify or delete) Cloudflare credentials for the tunnel + DNS cleanup |
 
-> **Cloudflare safety:** the tunnel/DNS cleanup needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`. If a tunnel is matched only by name and still has **active connectors** but no local credentials on this host, the uninstall refuses to delete it — it cannot take down a live tunnel another box is serving.
+**Removes:** every container, swarm state, volumes/networks (and images unless kept), `/etc/dokploy`, `cloudflared` + the Cloudflare **tunnel and only the DNS records pointing at it**, the agentic clone, rendered `.env`/compose files, and the loopback `authorized_keys` entry.
+
+**Keeps:** host hardening (always — dropping it would expose the box), the Docker engine and secrets store unless purged, and **your `--answers` file is never touched**.
+
+> [!WARNING]
+> **Cloudflare safety:** if a tunnel is matched only by name and still has **active connectors** but no local credentials on this host, the uninstall refuses to delete it — it cannot take down a live tunnel that another box is serving.
 
 ---
 
-## Security
+## 🔐 Security
 
 The hardening is grounded in two real 2026 compromises of the lab host — [docs/incident-report-2026-03-24.md](docs/incident-report-2026-03-24.md) (exposed PostgreSQL + default creds → cryptominer) and [docs/incident-report-2026-03-31.md](docs/incident-report-2026-03-31.md) (unauthenticated Langflow RCE + direct-port bypass).
 
 Applied on every install (unless `--skip-harden`):
 
-- **`ufw` default-deny** — only `22/80/443` inbound (`22` only in tunnel mode). A firewall alone would have prevented the first incident.
-- **`DOCKER-USER` iptables chain** — all container traffic forced through Traefik on `80/443`, closing the direct-port bypass behind the second incident. The installer aborts if it can't detect the WAN interface (pass `WAN_IFACE=<iface>` to override).
-- **No shipped secrets** — tracked composes reference `${VARS}` and fail closed if unset; strong values are generated at install.
-- **`fail2ban`** (SSH jail), **unattended security upgrades**, **root key-only sshd**, and a baseline user/`authorized_keys` audit at `/etc/dokploy-ai/audit-baseline.txt`.
-- **vmxnet3 offload workaround** — on ESXi VMs, NIC checksum/segmentation offloads are disabled (persisted via systemd) to stop long-lived connections dying under load with `ssh: message authentication code incorrect`.
+- 🧱 **`ufw` default-deny** — only `22/80/443` inbound (`22` only in tunnel mode). A firewall alone would have prevented the first incident.
+- 🚧 **`DOCKER-USER` iptables chain** — all container traffic forced through Traefik, closing the direct-port bypass behind the second incident. Aborts if the WAN interface can't be detected (`WAN_IFACE=<iface>` to override).
+- 🚫 **No shipped secrets** — tracked composes reference `${VARS}` and fail closed if unset.
+- 👮 **`fail2ban`**, **unattended security upgrades**, **root key-only sshd**, and a baseline `authorized_keys` audit.
+- 🖧 **vmxnet3 offload workaround** — on ESXi VMs, NIC checksum/segmentation offloads are disabled (persisted) to stop long-lived connections dying under load with `ssh: message authentication code incorrect`.
 
 **Port exposure policy** — database ports bind to `127.0.0.1` only; services talk over Docker networks:
 
@@ -319,9 +406,12 @@ Applied on every install (unless `--skip-harden`):
 
 ---
 
-## Reference
+## 📚 Reference
 
-### `install.sh` flags
+<details>
+<summary><b>🚩 <code>install.sh</code> flags</b></summary>
+
+<br>
 
 | Flag | Description |
 |---|---|
@@ -338,11 +428,16 @@ Applied on every install (unless `--skip-harden`):
 | `--clean` | Tear down the existing project/servers before redeploying |
 | `--plain` | Force plain numbered-step output |
 | `--big` | Double-width (2×) dashboard text, on terminals that support DEC double-width |
-| `--uninstall` | Full teardown mode (see [Uninstall](#uninstall)) |
-| `--yes` / `--keep-images` / `--keep-models` / `--purge-secrets` / `--remove-docker` | Uninstall modifiers (see [Uninstall](#uninstall)) |
+| `--uninstall` | Full teardown mode (see [Uninstall](#-uninstall)) |
+| `--yes` / `--keep-images` / `--keep-models` / `--purge-secrets` / `--remove-docker` | Uninstall modifiers |
 | `-h`, `--help` | Usage |
 
-### `dokploy_automate.py` arguments
+</details>
+
+<details>
+<summary><b>🐍 <code>dokploy_automate.py</code> arguments</b></summary>
+
+<br>
 
 | Argument | Required | Default | Description |
 |---|---|---|---|
@@ -361,7 +456,12 @@ Applied on every install (unless `--skip-harden`):
 | `--skip-harden` | no | off | Skip the built-in `harden_server` step |
 | `--clean` | no | off | Fresh rebuild (delete project/servers first) |
 
-### Environment variables
+</details>
+
+<details>
+<summary><b>🌍 Environment variables</b></summary>
+
+<br>
 
 | Variable | Purpose |
 |---|---|
@@ -380,7 +480,12 @@ Applied on every install (unless `--skip-harden`):
 | `CLOUDFLARE_TUNNEL_NAME` / `CLOUDFLARE_RECREATE_TUNNEL` | *(tunnel)* tunnel name (default `devhub`) / force recreate |
 | `DOKPLOY_GATE_USER` / `DOKPLOY_GATE_PASSWORD` | *(tunnel)* basic-auth for `dokploy.<DOMAIN>` |
 
-### Deploy to a remote host from your laptop
+</details>
+
+<details>
+<summary><b>💻 Deploy to a remote host from your laptop</b></summary>
+
+<br>
 
 The one-liner runs on the box. To provision a **remote** host from your workstation, drive [`dokploy_automate.py`](automation/dokploy_automate.py) directly — it installs Docker + Dokploy over SSH, registers the server, and deploys:
 
@@ -403,11 +508,18 @@ python3 automation/dokploy_automate.py \
   --clean
 ```
 
-Omit `--local-server` here — registering the remote box as a Dokploy server is the correct laptop→remote path. Set `WAN_IFACE` to the remote host's WAN interface so the `DOCKER-USER` chain guards the right one.
+Omit `--local-server` here — registering the remote box as a Dokploy server is the correct laptop→remote path. Set `WAN_IFACE` to the remote host's WAN interface.
+
+</details>
 
 ---
 
-## Repository layout
+## 🗂️ Repository layout
+
+<details>
+<summary><b>Files &amp; directories</b></summary>
+
+<br>
 
 ```text
 install.sh                    # One-line, on-the-box provisioner (harden → deploy → verify) + --uninstall
@@ -439,9 +551,11 @@ docs/
 └── reference/                # Salvaged Dokploy API notes + known-good bash reference impl
 ```
 
+</details>
+
 ---
 
-## Operations & troubleshooting
+## 🩺 Operations & troubleshooting
 
 The day-2 runbook — Ollama models and errors, network topology, the Docker address-pool SSH trap, intermittent 404s, SSH drops mid-install, missing-Traefik recovery, compose project-name gotchas, and more — lives in **[docs/operations.md](docs/operations.md)**.
 
