@@ -262,33 +262,34 @@ _nap() { if [ "$_NAP_OK" = 1 ]; then read -rt "$1" -u 8 _ 2>/dev/null || true; e
 _ui_size() {
   UI_ROWS="$( tput lines 2>/dev/null || echo "${LINES:-24}" )"
   UI_COLS="$( tput cols  2>/dev/null || echo "${COLUMNS:-80}" )"
-  # tput lies under `curl | sudo bash`: sudo runs the command on its OWN pty
-  # and (stdin being the pipe) never learns the real window size — every run
-  # reported the 80x24 default, so the layout centered inside an imaginary
-  # 80-col terminal in the top-left corner. Ask the TERMINAL EMULATOR itself:
-  # park the cursor at 999;999 and read back the cursor-position report
-  # (ESC[6n -> ESC[<rows>;<cols>R) — the answer traverses any pty chain.
-  # Only meaningful once the alt screen is up (the cursor jump is invisible
-  # there); 0.3s timeout falls back to the tput values (headless = no answer).
-  if [ "${UI_ALT:-0}" = 1 ] && [ "${_PROBE_STATE:-}" != "dead" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
-    local _pr="" _pc="" _junk=""
-    trap '' TTOU TTIN
-    if printf '\033[s\033[999;999H\033[6n\033[u' >/dev/tty 2>/dev/null; then
-      IFS='[;' read -rsd R -t 0.6 _junk _pr _pc </dev/tty 2>/dev/null || true
+  # tput lies under `curl | sudo bash`: sudo runs the command on its OWN 80x24
+  # pty and (stdin being the pipe) never learns the real window size — every
+  # run laid out in an imaginary 80-col corner. Do NOT ask the emulator with
+  # an escape probe (ESC[6n): its answer arrives as terminal INPUT and, in the
+  # sudo relay chain, can land on the user's prompt as typed junk (seen live:
+  # "^[[41;188R"). Instead read the winsize straight off an ANCESTOR's tty
+  # device: sudo itself sits on the real terminal, so walk up the parent chain
+  # to the first process whose tty differs from ours and ioctl ITS device —
+  # pure TIOCGWINSZ, not one byte crosses the terminal, nothing can leak.
+  # Direct (non-sudo) runs find no differing ancestor tty and keep tput's
+  # values; headless runs have no ancestor tty at all.
+  local _mytty _p _t _sz _pr _pc _hop=0
+  _mytty="$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')"
+  _p="${PPID:-1}"
+  while [ "$_hop" -lt 6 ] && [ -n "$_p" ] && [ "$_p" -gt 1 ] 2>/dev/null; do
+    _t="$(ps -o tty= -p "$_p" 2>/dev/null | tr -d ' ')"
+    if [ -n "$_t" ] && [ "$_t" != "?" ] && [ "$_t" != "$_mytty" ] && [ -e "/dev/$_t" ]; then
+      _sz="$( { stty size </dev/"$_t"; } 2>/dev/null || true)"
+      _pr="${_sz%% *}"; _pc="${_sz##* }"
+      case "${_pr}x${_pc}" in
+        *[!0-9x]*|x|*x|x*) : ;;
+        *) [ "$_pr" -ge 12 ] && [ "$_pc" -ge 40 ] && { UI_ROWS="$_pr"; UI_COLS="$_pc"; } ;;
+      esac
+      break
     fi
-    trap - TTOU TTIN
-    case "${_pr}x${_pc}" in
-      *[!0-9x]*|x|*x|x*)
-        # No/garbled answer: NEVER probe again this run — a response that
-        # arrives after the timeout would sit unread in the tty buffer and
-        # spill onto the user's prompt at exit (seen live as ";188R").
-        # _ui_reset also drains the buffer as the backstop.
-        _PROBE_STATE="dead" ;;
-      *)
-        _PROBE_STATE="ok"
-        [ "$_pr" -ge 12 ] && [ "$_pc" -ge 40 ] && { UI_ROWS="$_pr"; UI_COLS="$_pc"; } ;;
-    esac
-  fi
+    _p="$(ps -o ppid= -p "$_p" 2>/dev/null | tr -d ' ')"
+    _hop=$(( _hop + 1 ))
+  done
   [ "$UI_ROWS" -ge 12 ] 2>/dev/null || UI_ROWS=24
   [ "$UI_COLS" -ge 40 ] 2>/dev/null || UI_COLS=80
   # The live-output box gets every row the frame doesn't need — PHASE-AWARE:
