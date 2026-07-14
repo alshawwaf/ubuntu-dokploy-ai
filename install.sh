@@ -119,6 +119,7 @@ _FD_SAVED=0        # 1 while the real stdout/stderr are stashed in UI_OUT_FD/UI_
 # per phase (_stream's reader is a pipeline subshell; _stream_apps reads in the
 # main shell) — a file is the only state they all see. Removed on init/reset.
 UI_BOXMIN="${UI_BOXMIN:-/tmp/.dokploy-ai-boxmin}"
+_UI_LAST_ROW=0     # last occupied frame row (set by _ui_render; anchors the hold banner)
 
 # Pick the renderer: rich only on a real terminal with a capable TERM.
 UI_RICH=0
@@ -499,13 +500,19 @@ _ui_render() {
   # BUILT frame's newlines keeps this exact across every phase and collapse
   # state without duplicating the row budget. Pad rows carry [K so stale
   # content above the block always clears; [J below does the rest.
-  local _stripped _vpad _vp="" _j
+  local _stripped _n _vpad _vp="" _j
   _stripped="${f//$'\n'/}"
-  _vpad=$(( (UI_ROWS - (${#f} - ${#_stripped})) / 2 ))
+  _n=$(( ${#f} - ${#_stripped} ))
+  _vpad=$(( (UI_ROWS - _n) / 2 ))
   if [ "$_vpad" -gt 0 ]; then
     for ((_j=0;_j<_vpad;_j++)); do _vp+="${E}[K"$'\n'; done
     f="${E}[H${_vp}${f#${E}\[H}"
+  else
+    _vpad=0
   fi
+  # Exported for _ui_hold: the frame's last occupied row, so the hold banner
+  # can anchor right under the (centered) block instead of the screen corner.
+  _UI_LAST_ROW=$(( _vpad + _n ))
   f+="${E}[J"
   # NOTE the trailing `|| true` on the write: after a hangup the pty is gone and
   # printf gets EIO — under set -e that would kill whichever shell rendered
@@ -624,11 +631,18 @@ _ui_hold() {
   fi
   [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
   local msg="${1:-  \033[1;38;5;75m▸ press any key (or Ctrl-C) to exit…\033[0m}"
+  # Anchor the banner right under the centered frame (one blank row between),
+  # at the frame's left margin — not stranded in the screen corner. Falls back
+  # to the bottom row if the renderer hasn't exported a frame height.
+  local _hr="${UI_ROWS:-24}"
+  if [ "${_UI_LAST_ROW:-0}" -ge 3 ] && [ $(( _UI_LAST_ROW + 2 )) -le "${UI_ROWS:-24}" ]; then
+    _hr=$(( _UI_LAST_ROW + 2 ))
+  fi
   # Ignore job-control stop signals: both the footer write and the read touch
   # /dev/tty, and if this isn't the tty's foreground group they'd be stopped
   # (SIGTTOU/SIGTTIN) and never time out. Ignored, the read just returns.
   trap '' TTOU TTIN
-  printf '\033[%d;1H\033[K%b' "${UI_ROWS:-24}" "$msg" >/dev/tty 2>/dev/null || true
+  printf '\033[%d;1H\033[K%s%b' "$_hr" "${UI_MARGIN:-  }" "$msg" >/dev/tty 2>/dev/null || true
   read -rsn1 -t "${UI_HOLD_TIMEOUT:-600}" _ </dev/tty 2>/dev/null || true
   trap - TTOU TTIN
   return 0
@@ -1263,7 +1277,7 @@ PYCF
   # its own. Then leave the alt screen and print the summary into scrollback.
   _step_close
   _ui_render
-  _ui_hold "  \033[1;38;5;120m✔ uninstall complete\033[0m  \033[38;5;75m▸ press any key (or Ctrl-C) to exit…\033[0m"
+  _ui_hold "\033[48;5;22;1;97m ✔ uninstall complete \033[0m  \033[1;38;5;120m▸ press any key (or Ctrl-C) to exit…\033[0m"
   print_step_table
   printf '\n\033[1;32mUninstall complete.\033[0m Reinstall any time with:\n'
   printf '  sudo ./install.sh --domain %s --ingress tunnel --answers <answers.env>\n\n' "${DOMAIN:-<domain>}"
@@ -1902,7 +1916,7 @@ fi
 # out of the alt screen and print the summary into the scrollback.
 _step_close
 _ui_render
-_ui_hold "  \033[1;38;5;120m✔ provisioning complete\033[0m  \033[38;5;75m▸ press any key (or Ctrl-C) to exit…\033[0m"
+_ui_hold "\033[48;5;22;1;97m ✔ provisioning complete \033[0m  \033[1;38;5;120m▸ press any key (or Ctrl-C) to exit…\033[0m"
 print_step_table
 
 cat <<SUMMARY
