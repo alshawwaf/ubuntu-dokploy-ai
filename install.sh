@@ -180,16 +180,16 @@ _set_box() {
   t=" ${title} · live output "
   [ "${#t}" -gt "$((inner-4))" ] && t="${t:0:$((inner-4))}… "
   _set_rule $(( UI_CW - 3 - ${#t} ))
-  _BOX_OUT="${E}[K${UI_MARGIN}${E}[38;5;53m╭─${E}[38;5;219m${t}${E}[38;5;53m${_RULE_OUT}╮${E}[0m"$'\n'
+  _BOX_OUT="${E}[K${UI_MARGIN}${E}[38;5;24m╭─${E}[38;5;75m${t}${E}[38;5;24m${_RULE_OUT}╮${E}[0m"$'\n'
   for ((i=0;i<ACT_MAX;i++)); do
     line="${ACT[$i]:-}"; line="${line:0:$inner}"
     printf -v pad '%-*s' "$inner" "$line"
-    _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;53m│${E}[0m ${E}[38;5;250m${pad}${E}[0m ${E}[38;5;53m│${E}[0m"$'\n'
+    _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;24m│${E}[0m ${E}[38;5;250m${pad}${E}[0m ${E}[38;5;24m│${E}[0m"$'\n'
   done
   t=" full log → ${RUN_LOG} "
   [ "${#t}" -gt "$((inner-2))" ] && t=" log ▸ "
   _set_rule $(( UI_CW - 3 - ${#t} ))
-  _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;53m╰─${E}[38;5;244m${t}${E}[38;5;53m${_RULE_OUT}╯${E}[0m"$'\n'
+  _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;24m╰─${E}[38;5;244m${t}${E}[38;5;24m${_RULE_OUT}╯${E}[0m"$'\n'
 }
 _os_short() { ( . /etc/os-release 2>/dev/null || true; printf '%s %s' "${NAME:-Linux}" "${VERSION_ID:-}" ); }
 _SPINCH=""
@@ -204,7 +204,9 @@ _set_bar() {
   local done="$1" total="$2" width="$3" solid="${4:-}" key="$1|$2|$3|${4:-}"
   [ "$key" = "$_BAR_KEY" ] && return 0
   local E=$'\033' fill i ci out
-  local ramp=(57 63 99 135 171 207 213 219) n=8
+  # Gradient in the BLUE family (deep azure → cyan) — the dashboard's accent
+  # theme; the old purple→pink ramp read as loud.
+  local ramp=(25 26 27 32 33 38 39 45) n=8
   out="${E}[38;5;239m▕"
   if [ "$total" -gt 0 ]; then fill=$(( done*width/total )); else fill=0; fi
   for ((i=0;i<width;i++)); do
@@ -335,14 +337,14 @@ _ui_render() {
   # printf — no $() subshell forks and one terminal write, so the ticker stays
   # on cadence even while a heavy step saturates the box.
   f="${E}[H"
-  f+="${E}[K${UI_MARGIN}${E}[48;5;53;1;97m${brand}${pad}${E}[38;5;219m${badge} ${E}[0m"$'\n'
+  f+="${E}[K${UI_MARGIN}${E}[48;5;24;1;97m${brand}${pad}${E}[38;5;75m${badge} ${E}[0m"$'\n'
   if [ "$APPS_PHASE" = 1 ] && [ "${#APP_ORDER[@]}" -gt 0 ]; then
     # ---- app-deploy phase: TWO bars — overall (setup steps) stays visible on
     # top so total progress never disappears, and the phase bar underneath
     # tracks the apps actually coming up. Labels keep them unambiguous.
     _apps_counts
     countseg="${E}[38;5;120m▣ ${APPS_UP}/${APPS_TOTAL} apps${E}[0m"
-    f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
+    f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;81m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
     # NB: two different (done,total,width) tuples per frame defeat _set_bar's
     # single-slot memo, so both bars rebuild each tick — pure string work,
     # fork-free, negligible at 1-2 fps.
@@ -350,12 +352,12 @@ _ui_render() {
     # + separators — 18 beyond the plain bar row — so the line never exceeds
     # the content width (BIG mode doubles every cell, so overflow would wrap).
     local barw2=$(( barw - 18 )); [ "$barw2" -lt 10 ] && barw2=10
-    # Flat, distinct fills (muted indigo vs steel blue) — calmer than two
-    # gradients and unambiguous at a glance. Orange was rejected deliberately:
-    # it's the board's degraded/warn color, so an orange bar would read as a
-    # problem. Percentages/counters stay dim.
+    # Flat, distinct fills (deep blue vs steel blue — dark/light of one hue) —
+    # calmer than two gradients and unambiguous at a glance. Orange was
+    # rejected deliberately: it's the board's degraded/warn color, so an
+    # orange bar would read as a problem. Percentages/counters stay dim.
     pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
-    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw2" 62
+    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw2" 25
     f+="${E}[K${UI_MARGIN}${E}[38;5;244moverall ${E}[0m ${_BAR_OUT} ${E}[38;5;250m${pct}%${E}[0m ${E}[38;5;240m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"$'\n'
     pct=$(( APPS_TOTAL>0 ? APPS_UP*100/APPS_TOTAL : 0 ))
     _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw2" 75
@@ -364,8 +366,8 @@ _ui_render() {
     pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
     _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw"
     countseg="${E}[38;5;120m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"
-    f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
-    f+="${E}[K${UI_MARGIN}${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m"$'\n'
+    f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;81m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
+    f+="${E}[K${UI_MARGIN}${_BAR_OUT} ${E}[1;38;5;75m${pct}%${E}[0m"$'\n'
   fi
   f+="${E}[K"$'\n'
   if [ "$APPS_PHASE" = 1 ]; then
@@ -376,7 +378,7 @@ _ui_render() {
       f+="${E}[K${UI_MARGIN}${E}[38;5;120m✔${E}[0m ${E}[38;5;250mhost + platform ready${E}[38;5;240m · ${STEP_DONE}/${STEP_TOTAL} steps${E}[0m"$'\n'
     fi
     rw=$(( UI_CW>18 ? UI_CW-18 : 4 )); _set_rule "$rw"
-    f+="${E}[K${UI_MARGIN}${E}[38;5;53m─ ${E}[38;5;219mdeploying apps ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
+    f+="${E}[K${UI_MARGIN}${E}[38;5;24m─ ${E}[38;5;75mdeploying apps ${E}[38;5;24m${_RULE_OUT}${E}[0m"$'\n'
     if [ "${#APP_ORDER[@]}" -eq 0 ]; then
       # No snapshot yet — show the intro / recent activity lines, contained.
       _set_box "${STEP_TITLE:-deploying}"
@@ -396,7 +398,7 @@ _ui_render() {
         stt="${APP_STATE[$n]:-queued}"; det="${APP_DETAIL[$n]:-}"
         case "$stt" in
           up)       ic="${E}[38;5;120m✔${E}[0m";            cc="${E}[38;5;252m" ;;
-          building) ic="${E}[1;38;5;213m${_SPINCH}${E}[0m"; cc="${E}[1;97m" ;;
+          building) ic="${E}[1;38;5;81m${_SPINCH}${E}[0m"; cc="${E}[1;97m" ;;
           failed)   ic="${E}[1;38;5;203m✖${E}[0m";          cc="${E}[38;5;203m" ;;
           degraded) ic="${E}[38;5;214m▲${E}[0m";            cc="${E}[38;5;214m" ;;
           *)        ic="${E}[38;5;240m○${E}[0m";            cc="${E}[38;5;242m" ;;
@@ -408,7 +410,7 @@ _ui_render() {
       [ "$more" -gt 0 ] && f+="${E}[K${UI_MARGIN}${E}[38;5;240m… and ${more} more${E}[0m"$'\n'
       failstr=""; [ "$APPS_FAILED" -gt 0 ] && failstr=" ${E}[38;5;240m· ${E}[38;5;203m${APPS_FAILED} failed${E}[0m"
       _set_elapsed _ELS "$STEP_T0"
-      f+="${E}[K${UI_MARGIN}${E}[38;5;120m✔ ${APPS_UP} up${E}[0m ${E}[38;5;240m· ${E}[1;38;5;213m${APPS_BUILDING} building${E}[0m ${E}[38;5;240m· ${E}[38;5;242m${APPS_QUEUED} queued${E}[0m${failstr}   ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_ELS}${E}[0m"$'\n'
+      f+="${E}[K${UI_MARGIN}${E}[38;5;120m✔ ${APPS_UP} up${E}[0m ${E}[38;5;240m· ${E}[1;38;5;81m${APPS_BUILDING} building${E}[0m ${E}[38;5;240m· ${E}[38;5;242m${APPS_QUEUED} queued${E}[0m${failstr}   ${E}[38;5;81m◷${E}[0m ${E}[1;97m${_ELS}${E}[0m"$'\n'
     fi
   else
     # ---- normal setup phase: the step checklist + scrolling activity panel ----
@@ -416,7 +418,7 @@ _ui_render() {
       st="${STEP_ST[$i]:-pending}"; name="${STEP_NAMES[$i]:-}"; sec="${STEP_SEC[$i]:-}"
       case "$st" in
         done)    icon="${E}[38;5;120m✔${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;240m${sec}${E}[0m" ;;
-        running) icon="${E}[1;38;5;213m${_SPINCH}${E}[0m"; col="${E}[1;97m"; _set_elapsed _ELS "$STEP_T0"; sec="${E}[38;5;213m${_ELS}${E}[0m" ;;
+        running) icon="${E}[1;38;5;81m${_SPINCH}${E}[0m"; col="${E}[1;97m"; _set_elapsed _ELS "$STEP_T0"; sec="${E}[38;5;81m${_ELS}${E}[0m" ;;
         warn)    icon="${E}[38;5;214m▲${E}[0m"; col="${E}[38;5;252m"; sec="${E}[38;5;214m${sec}${E}[0m" ;;
         fail)    icon="${E}[1;38;5;203m✖${E}[0m"; col="${E}[1;38;5;203m"; sec="${E}[38;5;203mfailed${E}[0m" ;;
         skip)    icon="${E}[38;5;244m⤼${E}[0m"; col="${E}[38;5;244m"; sec="${E}[38;5;240mskipped${E}[0m" ;;
@@ -522,7 +524,7 @@ _ui_hold() {
     [ -t 1 ] || return 0
   fi
   [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
-  local msg="${1:-  \033[1;38;5;219m▸ press any key (or Ctrl-C) to exit…\033[0m}"
+  local msg="${1:-  \033[1;38;5;75m▸ press any key (or Ctrl-C) to exit…\033[0m}"
   # Ignore job-control stop signals: both the footer write and the read touch
   # /dev/tty, and if this isn't the tty's foreground group they'd be stopped
   # (SIGTTOU/SIGTTIN) and never time out. Ignored, the read just returns.
@@ -655,7 +657,7 @@ skip_step() {
 }
 log() {
   if [ "$UI_RICH" = 1 ]; then _ui_push "$*"; _ui_render
-  else printf '  \033[38;5;141m·\033[0m %s\n' "$*"; fi
+  else printf '  \033[38;5;74m·\033[0m %s\n' "$*"; fi
 }
 warn() {
   WARNINGS+=("[${STEP_NO}/${STEP_TOTAL} ${STEP_TITLE:-preflight}] $*")
@@ -712,7 +714,7 @@ print_step_table() {
   _ui_reset                                   # drop out of the pinned layout first
   _step_close
   local W=64
-  printf '\n\033[38;5;53m╭─\033[38;5;219m run summary \033[38;5;53m%s╮\033[0m\n' "$(_ui_rule $((W-13)))"
+  printf '\n\033[38;5;24m╭─\033[38;5;75m run summary \033[38;5;24m%s╮\033[0m\n' "$(_ui_rule $((W-13)))"
   local line
   if [ "${#STEP_LINES[@]}" -gt 0 ]; then
   for line in "${STEP_LINES[@]}"; do
@@ -722,11 +724,11 @@ print_step_table() {
     local mark='\033[1;38;5;120m✔\033[0m'
     [ "$status" = "warn" ]    && mark='\033[1;38;5;214m▲\033[0m'
     [ "$status" = "skipped" ] && mark='\033[38;5;244m⤼\033[0m'
-    printf "\033[38;5;53m│\033[0m ${mark} \033[38;5;141m%2s\033[0m  \033[97m%-42s\033[0m \033[38;5;244m%-8s %6s\033[0m\n" "$no" "$title" "$status" "$secs"
+    printf "\033[38;5;24m│\033[0m ${mark} \033[38;5;74m%2s\033[0m  \033[97m%-42s\033[0m \033[38;5;244m%-8s %6s\033[0m\n" "$no" "$title" "$status" "$secs"
   done
   fi
-  printf '\033[38;5;53m╰%s╯\033[0m\n' "$(_ui_rule $((W-1)))"
-  printf '  \033[38;5;244mtotal elapsed \033[38;5;213m%s\033[0m   \033[38;5;244mfull log \033[38;5;250m%s\033[0m\n' "$(_elapsed)" "$RUN_LOG"
+  printf '\033[38;5;24m╰%s╯\033[0m\n' "$(_ui_rule $((W-1)))"
+  printf '  \033[38;5;244mtotal elapsed \033[38;5;81m%s\033[0m   \033[38;5;244mfull log \033[38;5;250m%s\033[0m\n' "$(_elapsed)" "$RUN_LOG"
   if [ "${#WARNINGS[@]}" -gt 0 ]; then
     printf '\n\033[1;38;5;214m▲ %d warning(s) — review before calling this healthy:\033[0m\n' "${#WARNINGS[@]}"
     local w; for w in "${WARNINGS[@]}"; do printf '  \033[38;5;214m▲\033[0m %s\n' "$w"; done
@@ -743,7 +745,7 @@ _on_err() {
   if [ "${UI_RICH:-0}" = 1 ] && [ "${UI_ALT:-0}" = 1 ]; then
     if [ "${STEP_NO:-0}" -gt 0 ]; then STEP_ST[$STEP_NO]="fail"; fi
     _ui_render
-    _ui_hold "  \033[48;5;52;1;97m ✖ FAILED \033[0m \033[1;38;5;203mstep ${STEP_NO}/${STEP_TOTAL} (${STEP_TITLE:-preflight})\033[0m \033[38;5;244mexit ${code}\033[0m  \033[38;5;219m▸ press any key to close…\033[0m"
+    _ui_hold "  \033[48;5;52;1;97m ✖ FAILED \033[0m \033[1;38;5;203mstep ${STEP_NO}/${STEP_TOTAL} (${STEP_TITLE:-preflight})\033[0m \033[38;5;244mexit ${code}\033[0m  \033[38;5;75m▸ press any key to close…\033[0m"
   fi
   _ui_reset
   printf '\n\033[48;5;52;1;97m ✖ FAILED \033[0m \033[1;38;5;203mstep %d/%d (%s)\033[0m \033[38;5;244mafter %s · exit %d\033[0m\n' \
@@ -1793,7 +1795,7 @@ fi
 # out of the alt screen and print the summary into the scrollback.
 _step_close
 _ui_render
-_ui_hold "  \033[1;38;5;120m✔ provisioning complete\033[0m  \033[38;5;219m▸ press any key (or Ctrl-C) to exit…\033[0m"
+_ui_hold "  \033[1;38;5;120m✔ provisioning complete\033[0m  \033[38;5;75m▸ press any key (or Ctrl-C) to exit…\033[0m"
 print_step_table
 
 cat <<SUMMARY
