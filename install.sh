@@ -18,7 +18,7 @@
 # Uninstall (full teardown of everything the installer put on the host):
 #
 #   sudo ./install.sh --uninstall [--answers answers.env] [--yes]
-#                     [--keep-images] [--purge-secrets] [--remove-docker]
+#                     [--keep-images] [--keep-models] [--purge-secrets] [--remove-docker]
 #
 #   Removes containers, swarm state, volumes/networks/images, /etc/dokploy,
 #   cloudflared + the Cloudflare tunnel and the DNS records pointing at it
@@ -60,6 +60,7 @@ DOKPLOY_GATE_PASSWORD="${DOKPLOY_GATE_PASSWORD:-}"
 UNINSTALL=0
 ASSUME_YES=0
 KEEP_IMAGES=0
+KEEP_MODELS=0
 PURGE_SECRETS=0
 REMOVE_DOCKER=0
 
@@ -768,6 +769,7 @@ while [ "$#" -gt 0 ]; do
     --uninstall)       UNINSTALL=1; shift ;;
     --yes)             ASSUME_YES=1; shift ;;
     --keep-images)     KEEP_IMAGES=1; shift ;;
+    --keep-models)     KEEP_MODELS=1; shift ;;
     --purge-secrets)   PURGE_SECRETS=1; shift ;;
     --remove-docker)   REMOVE_DOCKER=1; shift ;;
     -h|--help)
@@ -898,6 +900,13 @@ run_uninstall() {
     local _q _vols
     for _q in 1 2; do
       _vols="$( docker volume ls -q 2>/dev/null || true )"
+      # --keep-models: preserve LLM weight volumes (ollama model store) so the
+      # next install skips the multi-GB model downloads — the single longest
+      # part of a redeploy. Weights are upstream artifacts, not stack state, so
+      # keeping them does not undermine "remove everything" semantics.
+      if [ "${KEEP_MODELS:-0}" = "1" ] && [ -n "$_vols" ]; then
+        _vols="$( printf '%s\n' "$_vols" | grep -viE 'ollama' || true )"
+      fi
       [ -z "$_vols" ] && break
       log "removing $(printf '%s\n' "$_vols" | grep -c .) volume(s)…"
       _run sh -c 'printf "%s\n" "$1" | xargs -r docker volume rm -f' _ "$_vols" || true
@@ -905,6 +914,10 @@ run_uninstall() {
     done
     _run docker network prune -f || true
     _vols="$( docker volume ls -q 2>/dev/null || true )"
+    if [ "${KEEP_MODELS:-0}" = "1" ]; then
+      _vols="$( printf '%s\n' "$_vols" | grep -viE 'ollama' || true )"
+      log "model volumes kept ($(docker volume ls -q 2>/dev/null | grep -ciE 'ollama' || true) ollama volume(s)) — the next install reuses the weights."
+    fi
     if [ -n "$_vols" ]; then
       warn "$(printf '%s\n' "$_vols" | grep -c .) volume(s) could not be removed."
     else
@@ -1625,27 +1638,28 @@ _vf_common=( --url http://localhost:3000 --email "$ADMIN_EMAIL" --password "$ADM
 
 step "Core apps — hub + essentials"
 log "Deploying the hub + lightweight apps first, so $HUB_URL is reachable"
-log "in a couple of minutes; the heavy AI stack follows once these are up."
+log "in a couple of minutes; the heavy AI stack queues right behind them."
 _stream python3 automation/dokploy_automate.py "${_da_common[@]}" --tier core $CLEAN
-_stream_apps python3 -u automation/utils/verify_deployment.py "${_vf_common[@]}" \
-  --tier core --timeout "${VERIFY_CORE_TIMEOUT:-900}" || \
-  warn "one or more CORE apps did not come up — see the board and the Dokploy dashboard."
 
 step "AI stack — models + agentic bundle"
-log "Now the LLM/agentic stack: this pulls model weights and builds the bundle,"
-log "so it is the long part. $HUB_URL is already usable while this finishes."
+log "Queueing the LLM/agentic stack behind the core apps (Dokploy deploys in"
+log "order, so the hub still comes up first), then verifying the whole board."
 # --no-purge (and NO $CLEAN) is critical: this is the SECOND wave. A tier deploy
 # otherwise clean-slates the whole Dokploy environment before deploying — and
 # $CLEAN/--clean deletes every project — either of which would DESTROY the core
-# tier we just brought up. The heavy wave must only ADD to the existing core
+# tier we just triggered. The heavy wave must only ADD to the existing core
 # deployment, so the clean-slate belongs to the core (first) wave alone.
+#
+# The heavy TRIGGER runs immediately after the core trigger (no verify barrier
+# between them): Dokploy processes deployments in submission order, so the core
+# apps still build/pull first and the hub is up just as fast — but the heavy
+# wave no longer idles for the length of the core verification (~3-6 min saved).
 _stream python3 automation/dokploy_automate.py "${_da_common[@]}" --tier heavy --no-purge || \
   warn "heavy-tier deploy trigger reported an error — check the Dokploy dashboard."
-# Verify the WHOLE board here, not just the heavy tier: the final wave is the
-# only place that sees every app at once, so a full-board check catches a core
-# app that silently went missing (e.g. a cross-tier wipe) instead of reporting
-# green on heavy alone. The heavy images are the long pole, so the timeout still
-# needs to cover them.
+# ONE verify pass over the WHOLE board (every app, both tiers): the live board
+# shows the hub flip green early, and a core app that went missing (e.g. a
+# cross-tier wipe) fails loudly instead of hiding behind a per-tier check. The
+# heavy images are the long pole, so the timeout covers them.
 _stream_apps python3 -u automation/utils/verify_deployment.py "${_vf_common[@]}" \
   --tier all --timeout "${VERIFY_TIMEOUT:-2700}" || \
   warn "one or more apps did not come up in time — they may still be building; check the board and the Dokploy dashboard."

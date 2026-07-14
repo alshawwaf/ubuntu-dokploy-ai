@@ -199,7 +199,7 @@ Either way:
 
 > **Dropped SSH? The install keeps going.** If the connection dies mid-run, the installer demotes itself to headless and finishes the deploy — piped (`curl | bash`) runs re-exec from an on-disk clone at startup, so even the script's source survives the drop. Re-attach with `sudo tail -f /var/log/dokploy-ai-install.log`. If you want the *dashboard* itself to be reconnectable, run inside `tmux` (`tmux new -s deploy`, detach `Ctrl-b d`, reattach `tmux attach -t deploy`).
 
-**Per-app verification.** The deploy waves don't just declare success — [`verify_deployment.py`](automation/utils/verify_deployment.py) waits for Dokploy's asynchronous builds to finish and cross-checks reality: for each app it polls the compose deployment status (`idle → running → done`/`error`) **and** inspects the real Docker containers (running / healthy / unhealthy). In `--board` mode it feeds the live app board; it self-ticks the dashboard clock ~1×/s regardless of output, and ends with a per-app table plus a non-zero exit if anything failed or timed out. Tune the heavy-wave wait with `VERIFY_TIMEOUT` (default `2700`s = 45m), the core-wave wait with `VERIFY_CORE_TIMEOUT` (default `900`s = 15m), and the poll cadence with `VERIFY_INTERVAL` (default `3`s).
+**Per-app verification.** The deploy waves don't just declare success — [`verify_deployment.py`](automation/utils/verify_deployment.py) waits for Dokploy's asynchronous builds to finish and cross-checks reality: for each app it polls the compose deployment status (`idle → running → done`/`error`) **and** inspects the real Docker containers (running / healthy / unhealthy). Both tiers are *triggered* back-to-back (Dokploy deploys them in submission order, so the hub still comes up first), then **one verify pass covers the whole board**. In `--board` mode it feeds the live app board; it self-ticks the dashboard clock ~1×/s regardless of output, and ends with a per-app table plus a non-zero exit if anything failed or timed out. Tune the wait with `VERIFY_TIMEOUT` (default `2700`s = 45m) and the poll cadence with `VERIFY_INTERVAL` (default `3`s).
 
 </details>
 
@@ -291,7 +291,7 @@ Full teardown of everything the installer put on the host:
 
 ```bash
 sudo ./install.sh --uninstall [--answers answers.env] [--yes] \
-                  [--keep-images] [--purge-secrets] [--remove-docker]
+                  [--keep-images] [--keep-models] [--purge-secrets] [--remove-docker]
 ```
 
 It runs a 9-step teardown with the same [live dashboard](#the-live-installer-dashboard): inventory + confirmation, leave the Docker Swarm, remove containers, remove volumes + networks, remove images, stop `cloudflared`, Cloudflare cleanup, remove Dokploy files/clones, and optional purges + a final report.
@@ -304,6 +304,7 @@ It runs a 9-step teardown with the same [live dashboard](#the-live-installer-das
 |---|---|
 | `--yes` | Skip the interactive `type "yes"` confirmation. **Required** to uninstall non-interactively (it refuses otherwise). |
 | `--keep-images` | Keep Docker images + build cache (a reinstall reuses the local cache — much faster). |
+| `--keep-models` | Keep the LLM weight volumes (ollama model store). The next install skips the multi-GB model downloads — the single longest part of a redeploy. Pair with `--keep-images` for the fastest wipe→redeploy cycle. |
 | `--purge-secrets` | Delete the *generated* secrets store (`/etc/dokploy-ai/secrets.env`) **only** — never your `--answers` file; the next install regenerates all passwords. |
 | `--remove-docker` | `apt purge` the Docker engine and remove `/var/lib/docker` + `/var/lib/containerd`. |
 | `--answers <file>` | Read (never modify or delete) Cloudflare creds from here so the tunnel + its DNS records can be cleaned up. |
@@ -369,6 +370,7 @@ Database ports bind to `127.0.0.1` only — never `0.0.0.0`. Services talk over 
 | `--uninstall` | Full teardown mode (see [Uninstall](#uninstall)) |
 | `--yes` | *(uninstall)* skip the interactive confirmation |
 | `--keep-images` | *(uninstall)* keep Docker images + build cache |
+| `--keep-models` | *(uninstall)* keep the LLM weight volumes (ollama) so redeploys skip model downloads |
 | `--purge-secrets` | *(uninstall)* delete the secrets store |
 | `--remove-docker` | *(uninstall)* purge the Docker engine |
 | `-h`, `--help` | Print the header comment (usage) and exit |
