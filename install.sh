@@ -262,6 +262,26 @@ _nap() { if [ "$_NAP_OK" = 1 ]; then read -rt "$1" -u 8 _ 2>/dev/null || true; e
 _ui_size() {
   UI_ROWS="$( tput lines 2>/dev/null || echo "${LINES:-24}" )"
   UI_COLS="$( tput cols  2>/dev/null || echo "${COLUMNS:-80}" )"
+  # tput lies under `curl | sudo bash`: sudo runs the command on its OWN pty
+  # and (stdin being the pipe) never learns the real window size — every run
+  # reported the 80x24 default, so the layout centered inside an imaginary
+  # 80-col terminal in the top-left corner. Ask the TERMINAL EMULATOR itself:
+  # park the cursor at 999;999 and read back the cursor-position report
+  # (ESC[6n -> ESC[<rows>;<cols>R) — the answer traverses any pty chain.
+  # Only meaningful once the alt screen is up (the cursor jump is invisible
+  # there); 0.3s timeout falls back to the tput values (headless = no answer).
+  if [ "${UI_ALT:-0}" = 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    local _pr="" _pc="" _junk=""
+    trap '' TTOU TTIN
+    if printf '\033[s\033[999;999H\033[6n\033[u' >/dev/tty 2>/dev/null; then
+      IFS='[;' read -rsd R -t 0.3 _junk _pr _pc </dev/tty 2>/dev/null || true
+    fi
+    trap - TTOU TTIN
+    case "${_pr}x${_pc}" in
+      *[!0-9x]*|x|*x|x*) : ;;   # non-numeric / empty — keep tput values
+      *) [ "$_pr" -ge 12 ] && [ "$_pc" -ge 40 ] && { UI_ROWS="$_pr"; UI_COLS="$_pc"; } ;;
+    esac
+  fi
   [ "$UI_ROWS" -ge 12 ] 2>/dev/null || UI_ROWS=24
   [ "$UI_COLS" -ge 40 ] 2>/dev/null || UI_COLS=80
   # The live-output box gets every row the frame doesn't need — PHASE-AWARE:
@@ -494,7 +514,6 @@ _ui_render() {
 }
 _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
-  _ui_size
   # EVERY /dev/tty access needs the job-control guard: a tty WRITE (stty -echo
   # = TCSETS) from outside the tty's foreground group is stopped by SIGTTOU and
   # the shell then waits on the stopped child forever — sudo runs commands on
@@ -507,6 +526,12 @@ _ui_init() {
   # repaint. _ui_reset restores the snapshot, so echo comes back on exit.
   { stty -echo </dev/tty; } 2>/dev/null || true
   trap - TTOU TTIN
+  # Alt screen BEFORE the first sizing: _ui_size's true-size probe parks the
+  # cursor at 999;999, which must happen on the alternate screen where the
+  # jump is invisible and nothing scrolls.
+  printf '\033[?1049h\033[?25l\033[2J' >"$UI_TTY" 2>/dev/null || true
+  UI_ALT=1
+  _ui_size
   : >"$RUN_LOG" 2>/dev/null || true
   rm -f "$UI_BOXMIN" 2>/dev/null || true   # every run starts with the box expanded
   UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"; _nap_setup   # cached statics + no-fork nap fd
@@ -521,8 +546,6 @@ _ui_init() {
     _FD_SAVED=1
     exec >>"$RUN_LOG" 2>&1 || true
   fi
-  printf '\033[?1049h\033[?25l\033[2J' >"$UI_TTY" 2>/dev/null || true   # alt screen, hide cursor, clear
-  UI_ALT=1
   _ui_render
 }
 _ui_reset() {
