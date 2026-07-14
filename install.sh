@@ -461,6 +461,18 @@ _ui_render() {
     _set_box "${STEP_TITLE:-activity}"
     f+="$_BOX_OUT"
   fi
+  # Vertical centering: width is already centered (UI_MARGIN); pad the frame
+  # down so the block sits mid-screen on tall terminals too. Counting the
+  # BUILT frame's newlines keeps this exact across every phase and collapse
+  # state without duplicating the row budget. Pad rows carry [K so stale
+  # content above the block always clears; [J below does the rest.
+  local _stripped _vpad _vp="" _j
+  _stripped="${f//$'\n'/}"
+  _vpad=$(( (UI_ROWS - (${#f} - ${#_stripped})) / 2 ))
+  if [ "$_vpad" -gt 0 ]; then
+    for ((_j=0;_j<_vpad;_j++)); do _vp+="${E}[K"$'\n'; done
+    f="${E}[H${_vp}${f#${E}\[H}"
+  fi
   f+="${E}[J"
   # NOTE the trailing `|| true` on the write: after a hangup the pty is gone and
   # printf gets EIO — under set -e that would kill whichever shell rendered
