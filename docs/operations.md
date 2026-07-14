@@ -12,6 +12,7 @@ Day-2 runbook for a deployed stack. For install/setup see the [README](../README
 - [Traefik domain labels (404s)](#traefik-domain-labels-404s)
 - [Intermittent 404s / apps flapping between 200 and 404](#intermittent-404s--apps-flapping-between-200-and-404)
 - [SSH session died mid-install ("message authentication code incorrect")](#ssh-session-died-mid-install-message-authentication-code-incorrect)
+- [Whole board unreachable (every host 404/000, apps deployed fine)](#whole-board-unreachable-every-host-404000-apps-deployed-fine)
 - [Core apps missing after install (only the agentic apps present)](#core-apps-missing-after-install-only-the-agentic-apps-present)
 - [Open WebUI can't reach Ollama](#open-webui-cant-reach-ollama)
 - [AI Guardrails settings database](#ai-guardrails-settings-database)
@@ -161,6 +162,16 @@ sudo tail -f /var/log/dokploy-ai-install.log
 ```
 
 If you want a reconnectable *dashboard* (not just the log), run the installer inside `tmux` and re-attach after the drop.
+
+## Whole board unreachable (every host 404/000, apps deployed fine)
+
+If every app deploys green but **no** host serves (local probe `curl -H "Host: hub.<DOMAIN>" http://127.0.0.1` gives 000/404 for everything), check whether the ingress container exists at all:
+
+```bash
+docker ps -a --format '{{.Names}}' | grep dokploy-traefik || echo MISSING
+```
+
+An interrupted install can die after the `dokploy` service is created but before its Traefik container — and a resumed install used to skip the whole Dokploy step ("already installed"), leaving nothing listening on 80/443. The installer now self-heals this (the Dokploy step verifies/creates `dokploy-traefik`); on an older checkout, re-run the installer or create the container manually with the official shape (see `install.sh`, Dokploy platform step).
 
 ## Core apps missing after install (only the agentic apps present)
 
