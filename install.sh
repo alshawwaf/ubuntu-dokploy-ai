@@ -114,6 +114,11 @@ _STTY_SAVE=""      # terminal state captured at _ui_init, restored verbatim at _
 UI_BIG=0           # --big / BIG=1: DEC double-width (2x) text; set responsively by _ui_size
 UI_TTY="${UI_TTY:-/dev/tty}"  # where frames are painted (overridable for render tests)
 _FD_SAVED=0        # 1 while the real stdout/stderr are stashed in UI_OUT_FD/UI_ERR_FD
+# The live-output box collapses/expands with the `d` key. State lives in a flag
+# FILE (not a variable) because the render loops run in different processes
+# per phase (_stream's reader is a pipeline subshell; _stream_apps reads in the
+# main shell) — a file is the only state they all see. Removed on init/reset.
+UI_BOXMIN="${UI_BOXMIN:-/tmp/.dokploy-ai-boxmin}"
 
 # Pick the renderer: rich only on a real terminal with a capable TERM.
 UI_RICH=0
@@ -174,9 +179,31 @@ _ui_rule() { _set_rule "$1"; printf '%s' "$_RULE_OUT"; }   # printing wrapper (n
 # never moves and the terminal never scrolls. Title = the running step; the
 # bottom border points at the full log for the complete, uncollapsed output.
 _BOX_OUT=""
+# Toggle-key poll: a zero-ish-timeout single-key read on the tty. Callable from
+# any process in the FOREGROUND group (the _stream reader subshell and the
+# _stream_apps main-shell loop both are — a *background* ticker is not, so
+# _run's ticker doesn't poll). `d` flips the collapse flag file.
+_box_poll() {
+  [ -r /dev/tty ] || return 0
+  local _k=""
+  IFS= read -rsn1 -t 0.02 _k </dev/tty 2>/dev/null || return 0
+  [ "$_k" = "d" ] || return 0
+  if [ -f "$UI_BOXMIN" ]; then rm -f "$UI_BOXMIN" 2>/dev/null || true
+  else : >"$UI_BOXMIN" 2>/dev/null || true; fi
+  return 0
+}
 _set_box() {
   local E=$'\033' title="$1" inner i line pad t
   inner=$(( UI_CW - 4 ))                       # room inside "│ … │"
+  if [ -f "$UI_BOXMIN" ]; then
+    # Collapsed: one quiet line; the freed rows stay blank (frame is
+    # absolute-addressed, so no relayout is needed).
+    t="▸ ${title} · output hidden — press d to expand "
+    [ "${#t}" -gt "$((UI_CW-2))" ] && t="${t:0:$((UI_CW-3))}… "
+    _set_rule $(( UI_CW - 1 - ${#t} ))
+    _BOX_OUT="${E}[K${UI_MARGIN}${E}[38;5;244m${t}${E}[38;5;24m${_RULE_OUT}${E}[0m"$'\n'
+    return 0
+  fi
   t=" ${title} · live output "
   [ "${#t}" -gt "$((inner-4))" ] && t="${t:0:$((inner-4))}… "
   _set_rule $(( UI_CW - 3 - ${#t} ))
@@ -186,8 +213,8 @@ _set_box() {
     printf -v pad '%-*s' "$inner" "$line"
     _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;24m│${E}[0m ${E}[38;5;250m${pad}${E}[0m ${E}[38;5;24m│${E}[0m"$'\n'
   done
-  t=" full log → ${RUN_LOG} "
-  [ "${#t}" -gt "$((inner-2))" ] && t=" log ▸ "
+  t=" full log → ${RUN_LOG} · d hides "
+  [ "${#t}" -gt "$((inner-2))" ] && t=" log ▸ · d hides "
   _set_rule $(( UI_CW - 3 - ${#t} ))
   _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;24m╰─${E}[38;5;244m${t}${E}[38;5;24m${_RULE_OUT}╯${E}[0m"$'\n'
 }
@@ -239,12 +266,12 @@ _ui_size() {
   # safety(2). Apps: header(5, dual bars) + hub(1) + divider(1) + borders(2) +
   # safety(1). Clamped so a 24-row console still fits (3 content rows).
   if [ "${APPS_PHASE:-0}" = 1 ]; then
-    ACT_MAX=$(( UI_ROWS - 10 ))
+    ACT_MAX=$(( UI_ROWS - 11 ))
   else
     ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 4 ))
   fi
   [ "$ACT_MAX" -lt 3 ]  && ACT_MAX=3
-  [ "$ACT_MAX" -gt 24 ] && ACT_MAX=24
+  [ "$ACT_MAX" -gt 28 ] && ACT_MAX=28
   # Big mode (--big / BIG=1): render every row with DEC double-width (ESC # 6),
   # so the text is 2x wider = bigger + more legible on a large terminal. A
   # double-width glyph occupies TWO cells, so we lay everything out against half
@@ -381,6 +408,7 @@ _ui_render() {
     f+="${E}[K${UI_MARGIN}${E}[38;5;24m─ ${E}[38;5;75mdeploying apps ${E}[38;5;24m${_RULE_OUT}${E}[0m"$'\n'
     if [ "${#APP_ORDER[@]}" -eq 0 ]; then
       # No snapshot yet — show the intro / recent activity lines, contained.
+      [ "$ACT_MAX" -gt 3 ] && f+="${E}[K"$'\n'
       _set_box "${STEP_TITLE:-deploying}"
       f+="$_BOX_OUT"
     else
@@ -427,6 +455,9 @@ _ui_render() {
       printf -v namep '%-42s' "$name"
       f+="${E}[K${UI_MARGIN}${icon} ${col}${namep}${E}[0m ${sec}"$'\n'
     done
+    # Breathing row above the box — skipped on cramped terminals where the box
+    # is already at its 3-row floor (the spacer would overflow a 24-row console).
+    [ "$ACT_MAX" -gt 3 ] && f+="${E}[K"$'\n'
     _set_box "${STEP_TITLE:-activity}"
     f+="$_BOX_OUT"
   fi
@@ -448,7 +479,12 @@ _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
   _ui_size
   _STTY_SAVE="$( { stty -g </dev/tty; } 2>/dev/null || true)"   # snapshot termios so _ui_reset can restore it EXACTLY
+  # No key echo while the dashboard owns the screen — a pressed key (the `d`
+  # box toggle) would otherwise print itself into the frame until the next
+  # repaint. _ui_reset restores the snapshot, so echo comes back on exit.
+  { stty -echo </dev/tty; } 2>/dev/null || true
   : >"$RUN_LOG" 2>/dev/null || true
+  rm -f "$UI_BOXMIN" 2>/dev/null || true   # every run starts with the box expanded
   UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"; _nap_setup   # cached statics + no-fork nap fd
   # Split the streams: frames paint on the TERMINAL ($UI_TTY); the script's
   # global stdout/stderr divert into the run log. Any bare command or stray
@@ -482,6 +518,7 @@ _ui_reset() {
     printf '\033[?25h\033[?1049l' >"$UI_TTY" 2>/dev/null || printf '\033[?25h\033[?1049l' 2>/dev/null || true
     UI_ALT=0
   fi
+  rm -f "$UI_BOXMIN" 2>/dev/null || true
   # Fully restore the terminal. _ui_hold's `read -rsn1` puts the tty in -icanon
   # -echo; when a signal (Ctrl-C) cuts the read short, bash never restores it,
   # leaving a dead prompt with ^C echoing literally. `stty echo` alone did NOT
@@ -566,6 +603,7 @@ _stream() {
       else
         _ui_push "$_line" collapse; last="$_line"; dup=0
       fi
+      _box_poll
       n=$((n+1)); [ $(( n % 2 )) -eq 0 ] && _ui_render
       :
     done; }
@@ -629,6 +667,7 @@ _stream_apps() {
       rs=$?
       [ "$rs" -le 128 ] && break   # <=128 = EOF/closed (child done); >128 = 1s timeout
     fi
+    _box_poll
     _ui_render
   done
   exec {AFD}<&-
