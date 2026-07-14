@@ -298,15 +298,15 @@ It runs a 9-step teardown with the same [live dashboard](#the-live-installer-das
 
 **What it removes:** every container, swarm state, Docker volumes/networks (and images unless `--keep-images`), `/etc/dokploy`, `cloudflared` + the Cloudflare **tunnel and only the DNS records pointing at it** (never anything else in the zone), the agentic clone, rendered `.env`/compose files, and the loopback `authorized_keys` entry.
 
-**What it keeps:** host hardening (ufw/fail2ban/sshd/unattended-upgrades) is **always** kept — dropping it would expose the box. The Docker engine and the secrets store are kept unless you pass the matching purge flag.
+**What it keeps:** host hardening (ufw/fail2ban/sshd/unattended-upgrades) is **always** kept — dropping it would expose the box. The Docker engine and the secrets store are kept unless you pass the matching purge flag. **Your `--answers` file is never deleted** — the uninstall only *reads* it (for the Cloudflare creds), even with `--purge-secrets`, so the same file works for the next reinstall.
 
 | Flag | Effect |
 |---|---|
 | `--yes` | Skip the interactive `type "yes"` confirmation. **Required** to uninstall non-interactively (it refuses otherwise). |
 | `--keep-images` | Keep Docker images + build cache (a reinstall reuses the local cache — much faster). |
-| `--purge-secrets` | Delete the secrets store (`/etc/dokploy-ai/secrets.env`); the next install regenerates all passwords. |
+| `--purge-secrets` | Delete the *generated* secrets store (`/etc/dokploy-ai/secrets.env`) **only** — never your `--answers` file; the next install regenerates all passwords. |
 | `--remove-docker` | `apt purge` the Docker engine and remove `/var/lib/docker` + `/var/lib/containerd`. |
-| `--answers <file>` | Read Cloudflare creds from here so the tunnel + its DNS records can be cleaned up. |
+| `--answers <file>` | Read (never modify or delete) Cloudflare creds from here so the tunnel + its DNS records can be cleaned up. |
 
 > **Cloudflare safety:** the tunnel/DNS cleanup needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (from `--answers` or the environment). If a tunnel is matched only by name and still has **active connectors** but no local credentials on this host, uninstall refuses to delete it — so it can't take down a live tunnel that another box (e.g. a shared production deployment) is serving. The repo checkout itself is left in place; delete it yourself if you want it gone.
 
