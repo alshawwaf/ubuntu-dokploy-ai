@@ -186,7 +186,12 @@ _BOX_OUT=""
 _box_poll() {
   [ -r /dev/tty ] || return 0
   local _k=""
-  IFS= read -rsn1 -t 0.02 _k </dev/tty 2>/dev/null || return 0
+  # SIGTTIN guard: a tty READ from outside the foreground group is stopped by
+  # default (sudo's own pty makes that our normal case) — ignored, the read
+  # just returns empty/EIO instead of freezing the reader loop.
+  trap '' TTIN TTOU
+  IFS= read -rsn1 -t 0.02 _k </dev/tty 2>/dev/null || { trap - TTIN TTOU; return 0; }
+  trap - TTIN TTOU
   [ "$_k" = "d" ] || return 0
   if [ -f "$UI_BOXMIN" ]; then rm -f "$UI_BOXMIN" 2>/dev/null || true
   else : >"$UI_BOXMIN" 2>/dev/null || true; fi
@@ -490,11 +495,18 @@ _ui_render() {
 _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
   _ui_size
+  # EVERY /dev/tty access needs the job-control guard: a tty WRITE (stty -echo
+  # = TCSETS) from outside the tty's foreground group is stopped by SIGTTOU and
+  # the shell then waits on the stopped child forever — sudo runs commands on
+  # its own pty, so `curl | sudo bash` sits exactly in that trap. This wedged
+  # both install and uninstall pre-banner when the echo-off landed unguarded.
+  trap '' TTOU TTIN
   _STTY_SAVE="$( { stty -g </dev/tty; } 2>/dev/null || true)"   # snapshot termios so _ui_reset can restore it EXACTLY
   # No key echo while the dashboard owns the screen — a pressed key (the `d`
   # box toggle) would otherwise print itself into the frame until the next
   # repaint. _ui_reset restores the snapshot, so echo comes back on exit.
   { stty -echo </dev/tty; } 2>/dev/null || true
+  trap - TTOU TTIN
   : >"$RUN_LOG" 2>/dev/null || true
   rm -f "$UI_BOXMIN" 2>/dev/null || true   # every run starts with the box expanded
   UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"; _nap_setup   # cached statics + no-fork nap fd
