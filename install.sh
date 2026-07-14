@@ -109,6 +109,7 @@ UI_ROWS=24
 UI_COLS=80
 UI_CW=76           # content width (set responsively by _ui_size)
 UI_MARGIN="  "     # left centering margin (set responsively by _ui_size)
+_STTY_SAVE=""      # terminal state captured at _ui_init, restored verbatim at _ui_reset
 
 # Pick the renderer: rich only on a real terminal with a capable TERM.
 UI_RICH=0
@@ -354,6 +355,7 @@ _ui_render() {
 _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
   _ui_size
+  _STTY_SAVE="$(stty -g </dev/tty 2>/dev/null || true)"   # snapshot termios so _ui_reset can restore it EXACTLY
   : >"$RUN_LOG" 2>/dev/null || true
   UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"; _nap_setup   # cached statics + no-fork nap fd
   printf '\033[?1049h\033[?25l\033[2J'   # alt screen, hide cursor, clear
@@ -367,7 +369,16 @@ _ui_reset() {
     printf '\033[?25h\033[?1049l'         # show cursor, leave alt screen (scrollback restored)
     UI_ALT=0
   fi
-  stty echo </dev/tty 2>/dev/null || true  # _ui_hold's `read -s` can leave echo OFF if a signal cut the read short
+  # Fully restore the terminal. _ui_hold's `read -rsn1` puts the tty in -icanon
+  # -echo; when a signal (Ctrl-C) cuts the read short, bash never restores it,
+  # leaving a dead prompt with ^C echoing literally. `stty echo` alone did NOT
+  # bring back canonical mode / signals — restore the exact saved termios (or
+  # fall back to `sane`) so the shell is usable the instant the TUI exits.
+  if [ -n "${_STTY_SAVE:-}" ]; then
+    stty "$_STTY_SAVE" </dev/tty 2>/dev/null || stty sane </dev/tty 2>/dev/null || true
+  else
+    stty sane </dev/tty 2>/dev/null || true
+  fi
 }
 # Keep the final dashboard on screen until the operator presses a key, so the end
 # state (which apps came up, which step failed) never just vanishes when the alt
@@ -382,7 +393,7 @@ _ui_hold() {
   [ -n "${CI:-}${GITHUB_ACTIONS:-}${NONINTERACTIVE:-}" ] && return 0
   [ "${HOLD:-1}" = 0 ] && return 0
   [ -t 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
-  local msg="${1:-  \033[1;38;5;219m▸ press any key to close this view…\033[0m}"
+  local msg="${1:-  \033[1;38;5;219m▸ press any key (or Ctrl-C) to exit…\033[0m}"
   printf '\033[%d;1H\033[K%b' "${UI_ROWS:-24}" "$msg" >/dev/tty 2>/dev/null || true
   read -rsn1 -t "${UI_HOLD_TIMEOUT:-600}" _ </dev/tty 2>/dev/null || true
   return 0
@@ -1533,7 +1544,7 @@ fi
 # out of the alt screen and print the summary into the scrollback.
 _step_close
 _ui_render
-_ui_hold "  \033[1;38;5;120m✔ provisioning complete\033[0m  \033[38;5;219m▸ press any key to close this view…\033[0m"
+_ui_hold "  \033[1;38;5;120m✔ provisioning complete\033[0m  \033[38;5;219m▸ press any key (or Ctrl-C) to exit…\033[0m"
 print_step_table
 
 cat <<SUMMARY
