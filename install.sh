@@ -391,11 +391,20 @@ _ui_reset() {
   # leaving a dead prompt with ^C echoing literally. `stty echo` alone did NOT
   # bring back canonical mode / signals — restore the exact saved termios (or
   # fall back to `sane`) so the shell is usable the instant the TUI exits.
+  #
+  # CRITICAL: ignore SIGTTOU/SIGTTIN around the stty. If _ui_reset runs while
+  # this process is NOT the tty's foreground group (e.g. after Ctrl-C on a
+  # `curl | sudo bash` pipeline), an stty on /dev/tty is stopped by SIGTTOU and
+  # the shell then `wait`s on the stopped child FOREVER — that is what wedged
+  # uninstall for 20+ minutes with a `stty echo` child stuck in state T. With
+  # the job-control signals ignored, the tty write simply proceeds.
+  trap '' TTOU TTIN
   if [ -n "${_STTY_SAVE:-}" ]; then
     stty "$_STTY_SAVE" </dev/tty 2>/dev/null || stty sane </dev/tty 2>/dev/null || true
   else
     stty sane </dev/tty 2>/dev/null || true
   fi
+  trap - TTOU TTIN
 }
 # Keep the final dashboard on screen until the operator presses a key, so the end
 # state (which apps came up, which step failed) never just vanishes when the alt
@@ -411,8 +420,13 @@ _ui_hold() {
   [ "${HOLD:-1}" = 0 ] && return 0
   [ -t 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
   local msg="${1:-  \033[1;38;5;219m▸ press any key (or Ctrl-C) to exit…\033[0m}"
+  # Ignore job-control stop signals: both the footer write and the read touch
+  # /dev/tty, and if this isn't the tty's foreground group they'd be stopped
+  # (SIGTTOU/SIGTTIN) and never time out. Ignored, the read just returns.
+  trap '' TTOU TTIN
   printf '\033[%d;1H\033[K%b' "${UI_ROWS:-24}" "$msg" >/dev/tty 2>/dev/null || true
   read -rsn1 -t "${UI_HOLD_TIMEOUT:-600}" _ </dev/tty 2>/dev/null || true
+  trap - TTOU TTIN
   return 0
 }
 _ui_winch() { [ "$UI_RICH" = 1 ] || return 0; _ui_size; printf '\033[2J'; _ui_render; }
