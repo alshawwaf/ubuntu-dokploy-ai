@@ -503,7 +503,16 @@ _ui_hold() {
   # walk-away wait (UI_HOLD_TIMEOUT, default 10m) so nothing stalls for an hour.
   [ -n "${CI:-}${GITHUB_ACTIONS:-}${NONINTERACTIVE:-}" ] && return 0
   [ "${HOLD:-1}" = 0 ] && return 0
-  [ -t 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+  # Interactivity test: while the dashboard is up, fd 1 is redirected into the
+  # run log (output-leak fix), so `-t 1` would be FALSE for every rich run and
+  # the hold would silently skip — the dashboard then closes on its own, which
+  # is exactly what this hold exists to prevent. Test the SAVED real stdout.
+  if [ "${_FD_SAVED:-0}" = 1 ]; then
+    [ -t "${UI_OUT_FD}" ] || return 0
+  else
+    [ -t 1 ] || return 0
+  fi
+  [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
   local msg="${1:-  \033[1;38;5;219m▸ press any key (or Ctrl-C) to exit…\033[0m}"
   # Ignore job-control stop signals: both the footer write and the read touch
   # /dev/tty, and if this isn't the tty's foreground group they'd be stopped
