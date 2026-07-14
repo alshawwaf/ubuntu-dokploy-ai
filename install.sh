@@ -343,13 +343,15 @@ _ui_render() {
     # + separators — 18 beyond the plain bar row — so the line never exceeds
     # the content width (BIG mode doubles every cell, so overflow would wrap).
     local barw2=$(( barw - 18 )); [ "$barw2" -lt 10 ] && barw2=10
-    # Flat, distinct fills (muted indigo vs pink) — calmer than two gradients
-    # and unambiguous at a glance. Percentages/counters stay dim.
+    # Flat, distinct fills (muted indigo vs steel blue) — calmer than two
+    # gradients and unambiguous at a glance. Orange was rejected deliberately:
+    # it's the board's degraded/warn color, so an orange bar would read as a
+    # problem. Percentages/counters stay dim.
     pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
     _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw2" 62
     f+="${E}[K${UI_MARGIN}${E}[38;5;244moverall ${E}[0m ${_BAR_OUT} ${E}[38;5;250m${pct}%${E}[0m ${E}[38;5;240m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"$'\n'
     pct=$(( APPS_TOTAL>0 ? APPS_UP*100/APPS_TOTAL : 0 ))
-    _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw2" 213
+    _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw2" 75
     f+="${E}[K${UI_MARGIN}${E}[38;5;244mapps    ${E}[0m ${_BAR_OUT} ${E}[38;5;250m${pct}%${E}[0m ${E}[38;5;240m▣ ${APPS_UP}/${APPS_TOTAL}${E}[0m"$'\n'
   else
     pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
