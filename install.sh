@@ -1258,6 +1258,12 @@ PYCF
   log "host hardening (ufw/fail2ban/sshd/unattended-upgrades) intentionally kept."
   [ -n "$U_REPO_DIR" ] && log "this repo checkout kept: $U_REPO_DIR (delete it yourself if unwanted)."
 
+  # Same contract as the install ending: the finished dashboard stays on screen
+  # until the operator dismisses it — the teardown result must not vanish on
+  # its own. Then leave the alt screen and print the summary into scrollback.
+  _step_close
+  _ui_render
+  _ui_hold "  \033[1;38;5;120m✔ uninstall complete\033[0m  \033[38;5;75m▸ press any key (or Ctrl-C) to exit…\033[0m"
   print_step_table
   printf '\n\033[1;32mUninstall complete.\033[0m Reinstall any time with:\n'
   printf '  sudo ./install.sh --domain %s --ingress tunnel --answers <answers.env>\n\n' "${DOMAIN:-<domain>}"
