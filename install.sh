@@ -1275,6 +1275,27 @@ if [ -f /etc/dokploy/dokploy.sh ] || docker service ls 2>/dev/null | grep -q dok
 else
   _stream sh -c 'curl -sSL https://dokploy.com/install.sh | sh'
 fi
+# The dokploy SERVICE existing does not guarantee the whole platform does: an
+# interrupted install can die after the service is created but before the
+# Traefik container is — and the "already installed" shortcut above would then
+# skip Traefik forever, leaving every app deployed but nothing listening on
+# 80/443 (the whole board verifies 0-up/unreachable). Ensure the ingress
+# container exists, mirroring the official installer's shape exactly.
+if ! docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx dokploy-traefik; then
+  warn "dokploy-traefik container missing (interrupted install?) — creating it."
+  docker run -d \
+    --name dokploy-traefik \
+    --restart always \
+    -v /etc/dokploy/traefik/traefik.yml:/etc/traefik/traefik.yml \
+    -v /etc/dokploy/traefik/dynamic:/etc/dokploy/traefik/dynamic \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -p 80:80/tcp -p 443:443/tcp -p 443:443/udp \
+    traefik:v3.6.7 >/dev/null 2>&1 || warn "could not create dokploy-traefik — check 'docker logs dokploy-traefik'."
+  docker network connect dokploy-network dokploy-traefik 2>/dev/null || true
+elif ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx dokploy-traefik; then
+  log "dokploy-traefik exists but is stopped — starting it."
+  docker start dokploy-traefik >/dev/null 2>&1 || warn "could not start dokploy-traefik."
+fi
 
 # ---------------------------------------------------------------------------
 # 4b. Hub framing middleware — let apps embed in the dev-hub desktop.
