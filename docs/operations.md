@@ -11,6 +11,7 @@ Day-2 runbook for a deployed stack. For install/setup see the [README](../README
 - [Docker Compose project name](#docker-compose-project-name)
 - [Traefik domain labels (404s)](#traefik-domain-labels-404s)
 - [Intermittent 404s / apps flapping between 200 and 404](#intermittent-404s--apps-flapping-between-200-and-404)
+- [SSH session died mid-install ("message authentication code incorrect")](#ssh-session-died-mid-install-message-authentication-code-incorrect)
 - [Core apps missing after install (only the agentic apps present)](#core-apps-missing-after-install-only-the-agentic-apps-present)
 - [Open WebUI can't reach Ollama](#open-webui-cant-reach-ollama)
 - [AI Guardrails settings database](#ai-guardrails-settings-database)
@@ -146,6 +147,18 @@ docker exec "$PG" psql -U dokploy -d dokploy -tAc "select host,count(*) from dom
 ```
 
 Root cause was Dokploy's non-idempotent `domain.create` (each deploy added another domain row per host). Fixed in the automation by `sync_domains()`, which deletes then recreates exactly the configured set every deploy — so it also self-heals any duplicates. Re-running the installer (or a single `--app "<name>"` redeploy) converges the host back to one router set.
+
+## SSH session died mid-install ("message authentication code incorrect")
+
+If your terminal drops mid-run with `ssh_dispatch_run_fatal: … message authentication code incorrect` (or just freezes and closes), that's the **network path corrupting the SSH stream** — not the installer, and usually not the box. Corroborate: `journalctl -u ssh` on the host shows no matching error (the corruption was detected client-side), and fresh SSH attempts may time out for a few minutes until the path recovers.
+
+**The install survives this.** On a hangup it demotes itself to headless and keeps provisioning; every step command is spawned immune to the hangup, and piped (`curl | bash`) runs re-exec from an on-disk clone at startup so the script's source can't be lost with the connection. Re-attach to a running install with:
+
+```bash
+sudo tail -f /var/log/dokploy-ai-install.log
+```
+
+If you want a reconnectable *dashboard* (not just the log), run the installer inside `tmux` and re-attach after the drop.
 
 ## Core apps missing after install (only the agentic apps present)
 
