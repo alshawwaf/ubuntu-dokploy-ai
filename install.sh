@@ -112,6 +112,8 @@ UI_CW=76           # content width (set responsively by _ui_size)
 UI_MARGIN="  "     # left centering margin (set responsively by _ui_size)
 _STTY_SAVE=""      # terminal state captured at _ui_init, restored verbatim at _ui_reset
 UI_BIG=0           # --big / BIG=1: DEC double-width (2x) text; set responsively by _ui_size
+UI_TTY="${UI_TTY:-/dev/tty}"  # where frames are painted (overridable for render tests)
+_FD_SAVED=0        # 1 while the real stdout/stderr are stashed in UI_OUT_FD/UI_ERR_FD
 
 # Pick the renderer: rich only on a real terminal with a capable TERM.
 UI_RICH=0
@@ -407,23 +409,44 @@ _ui_render() {
     f="${f//$'\n'/$'\n'${DWL}}"
     f="${E}[H${DWL}${f#${E}\[H}"
   fi
-  printf '%s' "$f" 2>/dev/null || true
+  printf '%s' "$f" >"$UI_TTY" 2>/dev/null || true
 }
 _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
   _ui_size
-  _STTY_SAVE="$(stty -g </dev/tty 2>/dev/null || true)"   # snapshot termios so _ui_reset can restore it EXACTLY
+  _STTY_SAVE="$( { stty -g </dev/tty; } 2>/dev/null || true)"   # snapshot termios so _ui_reset can restore it EXACTLY
   : >"$RUN_LOG" 2>/dev/null || true
   UI_HOST="$(hostname 2>/dev/null || echo host)"; UI_OS="$(_os_short)"; _nap_setup   # cached statics + no-fork nap fd
-  printf '\033[?1049h\033[?25l\033[2J'   # alt screen, hide cursor, clear
+  # Split the streams: frames paint on the TERMINAL ($UI_TTY); the script's
+  # global stdout/stderr divert into the run log. Any bare command or stray
+  # print (ufw, python heredocs, …) that is not routed through _stream/_run
+  # then lands in the LOG — it physically cannot print below the dashboard,
+  # which previously caused scroll/flash as repaints cleared it. The real fds
+  # are stashed and restored by _ui_reset so post-run output (final summary,
+  # step table, error banners — die/_on_err reset first) reaches the terminal.
+  if exec {UI_OUT_FD}>&1 {UI_ERR_FD}>&2 2>/dev/null; then
+    _FD_SAVED=1
+    exec >>"$RUN_LOG" 2>&1 || true
+  fi
+  printf '\033[?1049h\033[?25l\033[2J' >"$UI_TTY" 2>/dev/null || true   # alt screen, hide cursor, clear
   UI_ALT=1
   _ui_render
 }
 _ui_reset() {
   [ "${UI_RICH:-0}" = 1 ] || return 0
   UI_RICH=0
+  # Reconnect stdout/stderr to the real terminal FIRST, so everything printed
+  # after the dashboard (final summary, error banners, die() messages) is
+  # visible instead of quietly appending to the run log.
+  if [ "${_FD_SAVED:-0}" = 1 ]; then
+    # NOTE: no trailing redirect here — appending `2>/dev/null` to this exec
+    # would re-point stderr at /dev/null AFTER restoring it.
+    exec 1>&"$UI_OUT_FD" 2>&"$UI_ERR_FD" || true
+    exec {UI_OUT_FD}>&- {UI_ERR_FD}>&- || true
+    _FD_SAVED=0
+  fi
   if [ "$UI_ALT" = 1 ]; then
-    printf '\033[?25h\033[?1049l'         # show cursor, leave alt screen (scrollback restored)
+    printf '\033[?25h\033[?1049l' >"$UI_TTY" 2>/dev/null || printf '\033[?25h\033[?1049l' 2>/dev/null || true
     UI_ALT=0
   fi
   # Fully restore the terminal. _ui_hold's `read -rsn1` puts the tty in -icanon
@@ -469,7 +492,7 @@ _ui_hold() {
   trap - TTOU TTIN
   return 0
 }
-_ui_winch() { [ "$UI_RICH" = 1 ] || return 0; _ui_size; printf '\033[2J'; _ui_render; }
+_ui_winch() { [ "$UI_RICH" = 1 ] || return 0; _ui_size; printf '\033[2J' >"$UI_TTY" 2>/dev/null || true; _ui_render; }
 _elapsed_since() { _set_elapsed _ELS "${1:-$RUN_T0}"; printf '%s' "$_ELS"; }
 
 # Run a command; stream its output through the activity panel (in place, not
