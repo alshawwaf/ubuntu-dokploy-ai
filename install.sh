@@ -110,6 +110,7 @@ UI_COLS=80
 UI_CW=76           # content width (set responsively by _ui_size)
 UI_MARGIN="  "     # left centering margin (set responsively by _ui_size)
 _STTY_SAVE=""      # terminal state captured at _ui_init, restored verbatim at _ui_reset
+UI_BIG=0           # --big / BIG=1: DEC double-width (2x) text; set responsively by _ui_size
 
 # Pick the renderer: rich only on a real terminal with a capable TERM.
 UI_RICH=0
@@ -202,12 +203,20 @@ _ui_size() {
   ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 2 ))
   [ "$ACT_MAX" -lt 3 ]  && ACT_MAX=3
   [ "$ACT_MAX" -gt 12 ] && ACT_MAX=12
-  # Content width + left margin so the dashboard CENTERS and fills a wide terminal
+  # Big mode (--big / BIG=1): render every row with DEC double-width (ESC # 6),
+  # so the text is 2x wider = bigger + more legible on a large terminal. A
+  # double-width glyph occupies TWO cells, so we lay everything out against half
+  # the real column count. Needs >= 80 real cols (>= 40 effective) to be usable;
+  # on a terminal that doesn't support ESC # 6 the escape is ignored and the
+  # content simply renders single-width in the left half (readable, not broken).
+  UI_BIG=0; [ "${BIG:-0}" = 1 ] && [ "$UI_COLS" -ge 80 ] && UI_BIG=1
+  local eff=$UI_COLS; [ "$UI_BIG" = 1 ] && eff=$(( UI_COLS / 2 ))
+  # Content width + left margin so the dashboard CENTERS and fills the terminal
   # instead of clustering in the top-left corner. Cap the content width so the bar
   # and dividers stay a sane length on ultra-wide terminals; the leftover space
   # becomes a centering margin. On an 80-col console this is a no-op (margin = 2).
-  UI_CW=$(( UI_COLS - 4 )); [ "$UI_CW" -gt 132 ] && UI_CW=132; [ "$UI_CW" -lt 36 ] && UI_CW=36
-  _mg=$(( (UI_COLS - UI_CW) / 2 )); [ "$_mg" -lt 2 ] && _mg=2
+  UI_CW=$(( eff - 4 )); [ "$UI_CW" -gt 132 ] && UI_CW=132; [ "$UI_CW" -lt 36 ] && UI_CW=36
+  _mg=$(( (eff - UI_CW) / 2 )); [ "$_mg" -lt 2 ] && _mg=2
   printf -v UI_MARGIN '%*s' "$_mg" ''
   return 0   # a trailing `[ ] && …` that tests false would otherwise make this
              # function return non-zero and trip the ERR trap under set -e
@@ -350,6 +359,14 @@ _ui_render() {
     done
   fi
   f+="${E}[J"
+  if [ "${UI_BIG:-0}" = 1 ]; then
+    # DEC double-width is a per-LINE attribute (reset each line), so emit ESC # 6
+    # at the start of every row: right after each newline, and after the initial
+    # cursor-home for the first row.
+    local DWL=$'\033#6'
+    f="${f//$'\n'/$'\n'${DWL}}"
+    f="${E}[H${DWL}${f#${E}\[H}"
+  fi
   printf '%s' "$f"
 }
 _ui_init() {
@@ -642,6 +659,7 @@ while [ "$#" -gt 0 ]; do
     --ingress)         INGRESS_MODE="$2"; shift 2 ;;
     --clean)           CLEAN="--clean"; shift ;;
     --plain)           UI_RICH=0; shift ;;
+    --big)             BIG=1; shift ;;
     --uninstall)       UNINSTALL=1; shift ;;
     --yes)             ASSUME_YES=1; shift ;;
     --keep-images)     KEEP_IMAGES=1; shift ;;

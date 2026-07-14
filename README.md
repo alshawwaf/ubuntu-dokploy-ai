@@ -365,6 +365,7 @@ Database ports bind to `127.0.0.1` only — never `0.0.0.0`. Services talk over 
 | `--dns-warn-only` | Report DNS problems but continue |
 | `--clean` | Tear down existing project/servers before redeploying |
 | `--plain` | Force plain numbered-step output (disable the rich dashboard) |
+| `--big` | Render the dashboard in double-width text (2× larger, more legible on a big terminal). Needs a terminal that supports DEC double-width (iTerm2, Terminal.app, xterm, …); ignored gracefully elsewhere. Note: font size itself is a terminal setting — use the terminal's zoom for even larger text. |
 | `--uninstall` | Full teardown mode (see [Uninstall](#uninstall)) |
 | `--yes` | *(uninstall)* skip the interactive confirmation |
 | `--keep-images` | *(uninstall)* keep Docker images + build cache |
