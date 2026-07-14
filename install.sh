@@ -1719,6 +1719,13 @@ cat <<SUMMARY
 
   Show the admin password:  sudo awk -F= '/DOKPLOY_ADMIN_PASSWORD/{print \$2}' $STORE
 
+  LLM models: the install does NOT wait for model weights — the download was
+  triggered and continues in the background (container ollama-pull-models-cpu).
+  Chat/agent apps are up now but answer prompts only once their model lands.
+    watch progress : sudo docker logs -f ollama-pull-models-cpu
+    list ready     : sudo docker exec ollama-cpu ollama list
+  (Uninstall with --keep-models and the next install skips this entirely.)
+
   Any bring-your-own API keys you did not supply were reported above; add
   them to answers.env and re-run this script to enable those integrations.
 ============================================================

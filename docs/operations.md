@@ -82,7 +82,9 @@ OPEN_WEBUI_DEFAULT_MODELS=gemma4:e2b
 OLLAMA_MAX_LOADED_MODELS=2
 ```
 
-The pull is performed by the `ollama-pull-models-cpu` (or `gpu`) service in the [`cp-agentic-mcp-playground`](https://github.com/alshawwaf/cp-agentic-mcp-playground) compose. Set the variables to a comma-separated list to pull more. First-time pulls run to completion automatically and can take 10–20 minutes depending on model size.
+The pull is performed by the `ollama-pull-models-cpu` (or `gpu`) service in the [`cp-agentic-mcp-playground`](https://github.com/alshawwaf/cp-agentic-mcp-playground) compose. Set the variables to a comma-separated list to pull more.
+
+**The install never waits for weights.** Model downloads are *triggered* during the deploy and continue in the background after the installer reports complete — the chat/agent apps are reachable immediately and start answering prompts once their model lands (10–20 min for the shipped set, bandwidth-depending). Watch progress with `docker logs -f ollama-pull-models-cpu`; a model appears in `ollama list` when it's ready. Uninstalling with `--keep-models` preserves the weight volume, so the next install's pull is a no-op.
 
 ```bash
 docker exec ollama-cpu ollama list          # list models
