@@ -197,14 +197,20 @@ _spin() { SPIN_I=$(( (SPIN_I+1) % ${#SPIN_FRAMES[@]} )); _SPINCH="${SPIN_FRAMES[
 _set_elapsed() { local s=$(( ${EPOCHSECONDS:-$(date +%s)} - ${2:-$RUN_T0} )); printf -v "$1" '%02d:%02d' $((s/60)) $((s%60)); }
 _BAR_KEY=""; _BAR_OUT=""
 _set_bar() {
-  local done="$1" total="$2" width="$3" key="$1|$2|$3"
+  # $4 (optional): a single xterm-256 color for a FLAT fill. Used by the dual
+  # overall/apps bars — two rainbow gradients side by side read as noise, while
+  # two distinct solid colors stay calm and instantly tell the bars apart. The
+  # gradient remains the (single) setup-phase bar's look.
+  local done="$1" total="$2" width="$3" solid="${4:-}" key="$1|$2|$3|${4:-}"
   [ "$key" = "$_BAR_KEY" ] && return 0
   local E=$'\033' fill i ci out
   local ramp=(57 63 99 135 171 207 213 219) n=8
   out="${E}[38;5;239m▕"
   if [ "$total" -gt 0 ]; then fill=$(( done*width/total )); else fill=0; fi
   for ((i=0;i<width;i++)); do
-    if [ "$i" -lt "$fill" ]; then ci=$(( i*n/width )); [ "$ci" -ge "$n" ] && ci=$((n-1)); out="${out}${E}[38;5;${ramp[$ci]}m█"
+    if [ "$i" -lt "$fill" ]; then
+      if [ -n "$solid" ]; then ci="$solid"; else ci=$(( i*n/width )); [ "$ci" -ge "$n" ] && ci=$((n-1)); ci="${ramp[$ci]}"; fi
+      out="${out}${E}[38;5;${ci}m█"
     else out="${out}${E}[38;5;238m░"; fi
   done
   _BAR_KEY="$key"; _BAR_OUT="${out}${E}[38;5;239m▏${E}[0m"
@@ -337,12 +343,14 @@ _ui_render() {
     # + separators — 18 beyond the plain bar row — so the line never exceeds
     # the content width (BIG mode doubles every cell, so overflow would wrap).
     local barw2=$(( barw - 18 )); [ "$barw2" -lt 10 ] && barw2=10
+    # Flat, distinct fills (muted indigo vs pink) — calmer than two gradients
+    # and unambiguous at a glance. Percentages/counters stay dim.
     pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
-    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw2"
-    f+="${E}[K${UI_MARGIN}${E}[38;5;244moverall ${E}[0m ${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m ${E}[38;5;240m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"$'\n'
+    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw2" 62
+    f+="${E}[K${UI_MARGIN}${E}[38;5;244moverall ${E}[0m ${_BAR_OUT} ${E}[38;5;250m${pct}%${E}[0m ${E}[38;5;240m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"$'\n'
     pct=$(( APPS_TOTAL>0 ? APPS_UP*100/APPS_TOTAL : 0 ))
-    _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw2"
-    f+="${E}[K${UI_MARGIN}${E}[38;5;244mapps    ${E}[0m ${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m ${E}[38;5;240m▣ ${APPS_UP}/${APPS_TOTAL}${E}[0m"$'\n'
+    _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw2" 213
+    f+="${E}[K${UI_MARGIN}${E}[38;5;244mapps    ${E}[0m ${_BAR_OUT} ${E}[38;5;250m${pct}%${E}[0m ${E}[38;5;240m▣ ${APPS_UP}/${APPS_TOTAL}${E}[0m"$'\n'
   else
     pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
     _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw"
@@ -1407,6 +1415,33 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$SKIP_HARDEN" != "1" ]; then
   step "Host hardening"
+  # ESXi/vmxnet3 stream-corruption workaround: with checksum + segmentation
+  # offloads ON, corrupt packets pass the vNIC unverified and long-lived
+  # connections die under heavy load — observed as SSH sessions dropping with
+  # "message authentication code incorrect" exactly while the box pulls
+  # gigabytes of images. Software checksums cost a little CPU and remove the
+  # failure mode entirely. Applied only when the WAN NIC is vmxnet3; persisted
+  # with a oneshot unit so it survives reboots.
+  if [ "$(ethtool -i "$WAN_IFACE" 2>/dev/null | awk '/^driver:/{print $2}')" = "vmxnet3" ]; then
+    log "vmxnet3 detected — disabling NIC offloads (SSH-drop / stream-corruption fix)"
+    ethtool -K "$WAN_IFACE" tso off gso off gro off tx off rx off 2>/dev/null || \
+      warn "could not disable NIC offloads on $WAN_IFACE."
+    cat > /etc/systemd/system/nic-offload-off.service <<UNIT
+[Unit]
+Description=Disable NIC offloads (vmxnet3 stream-corruption workaround)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "IF=\$(ip route | awk '/default/{print \$5; exit}'); ethtool -K \$IF tso off gso off gro off tx off rx off"
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl enable nic-offload-off.service >/dev/null 2>&1 || true
+  fi
   log "Applying DOCKER-USER firewall chain (force all app ports through Traefik)"
   # INC-2026-03-31: containers published ports on 0.0.0.0, bypassing Traefik.
   # This chain drops direct external access to every Docker-published port;

@@ -153,7 +153,16 @@ Root cause was Dokploy's non-idempotent `domain.create` (each deploy added anoth
 
 ## SSH session died mid-install ("message authentication code incorrect")
 
-If your terminal drops mid-run with `ssh_dispatch_run_fatal: … message authentication code incorrect` (or just freezes and closes), that's the **network path corrupting the SSH stream** — not the installer, and usually not the box. Corroborate: `journalctl -u ssh` on the host shows no matching error (the corruption was detected client-side), and fresh SSH attempts may time out for a few minutes until the path recovers.
+If your terminal drops mid-run with `ssh_dispatch_run_fatal: … message authentication code incorrect` (or just freezes and closes), the **SSH stream is being corrupted**. Corroborate: `journalctl -u ssh` on the host shows no matching error (the corruption was detected client-side).
+
+**Root cause on ESXi VMs (recurring drops under load):** the `vmxnet3` vNIC with checksum/segmentation offloads enabled (`tso`/`gso`/`gro`/`tx`/`rx`) lets corrupted packets through unverified — long-lived connections then die exactly while the box pulls gigabytes of images. The installer's hardening step now detects `vmxnet3` and **disables the offloads** (plus a `nic-offload-off.service` oneshot so it survives reboots). Verify / apply by hand:
+
+```bash
+ethtool -i ens192 | head -1
+ethtool -K ens192 tso off gso off gro off tx off rx off
+```
+
+If drops persist on a non-vmxnet3 path, it's the network in between (NAT/VPN) — transient.
 
 **The install survives this.** On a hangup it demotes itself to headless and keeps provisioning; every step command is spawned immune to the hangup, and piped (`curl | bash`) runs re-exec from an on-disk clone at startup so the script's source can't be lost with the connection. Re-attach to a running install with:
 
