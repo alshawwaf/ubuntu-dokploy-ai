@@ -165,6 +165,29 @@ _set_rule() {
   _RULE_OUT="${_RULE_CACHE[$w]}"
 }
 _ui_rule() { _set_rule "$1"; printf '%s' "$_RULE_OUT"; }   # printing wrapper (non-hot callers)
+# Build the contained live-output panel into _BOX_OUT: a bordered, fixed-height
+# box that tail-follows the activity ring INSIDE its frame. Heavy step output
+# (docker pulls, apt, dokploy) churns within the box; the layout around it
+# never moves and the terminal never scrolls. Title = the running step; the
+# bottom border points at the full log for the complete, uncollapsed output.
+_BOX_OUT=""
+_set_box() {
+  local E=$'\033' title="$1" inner i line pad t
+  inner=$(( UI_CW - 4 ))                       # room inside "│ … │"
+  t=" ${title} · live output "
+  [ "${#t}" -gt "$((inner-4))" ] && t="${t:0:$((inner-4))}… "
+  _set_rule $(( UI_CW - 3 - ${#t} ))
+  _BOX_OUT="${E}[K${UI_MARGIN}${E}[38;5;53m╭─${E}[38;5;219m${t}${E}[38;5;53m${_RULE_OUT}╮${E}[0m"$'\n'
+  for ((i=0;i<ACT_MAX;i++)); do
+    line="${ACT[$i]:-}"; line="${line:0:$inner}"
+    printf -v pad '%-*s' "$inner" "$line"
+    _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;53m│${E}[0m ${E}[38;5;250m${pad}${E}[0m ${E}[38;5;53m│${E}[0m"$'\n'
+  done
+  t=" full log → ${RUN_LOG} "
+  [ "${#t}" -gt "$((inner-2))" ] && t=" log ▸ "
+  _set_rule $(( UI_CW - 3 - ${#t} ))
+  _BOX_OUT+="${E}[K${UI_MARGIN}${E}[38;5;53m╰─${E}[38;5;244m${t}${E}[38;5;53m${_RULE_OUT}╯${E}[0m"$'\n'
+}
 _os_short() { ( . /etc/os-release 2>/dev/null || true; printf '%s %s' "${NAME:-Linux}" "${VERSION_ID:-}" ); }
 _SPINCH=""
 _spin() { SPIN_I=$(( (SPIN_I+1) % ${#SPIN_FRAMES[@]} )); _SPINCH="${SPIN_FRAMES[$SPIN_I]}"; }
@@ -198,11 +221,12 @@ _ui_size() {
   UI_COLS="$( tput cols  2>/dev/null || echo "${COLUMNS:-80}" )"
   [ "$UI_ROWS" -ge 12 ] 2>/dev/null || UI_ROWS=24
   [ "$UI_COLS" -ge 40 ] 2>/dev/null || UI_COLS=80
-  # Rows: header(4) + checklist(STEP_TOTAL) + divider(1) = fixed; the rest is
-  # the live activity panel, clamped so it never overflows a short terminal.
-  ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 2 ))
+  # Rows: header(4) + checklist(STEP_TOTAL) + box borders(2) + safety(2) =
+  # fixed; the rest is the contained live-output box, clamped so the frame
+  # never overflows a short terminal (24-row console → 3 content rows).
+  ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 4 ))
   [ "$ACT_MAX" -lt 3 ]  && ACT_MAX=3
-  [ "$ACT_MAX" -gt 12 ] && ACT_MAX=12
+  [ "$ACT_MAX" -gt 16 ] && ACT_MAX=16
   # Big mode (--big / BIG=1): render every row with DEC double-width (ESC # 6),
   # so the text is 2x wider = bigger + more legible on a large terminal. A
   # double-width glyph occupies TWO cells, so we lay everything out against half
@@ -223,8 +247,27 @@ _ui_size() {
 }
 # Push a raw output line into the activity ring (+ persist to the log file).
 _ui_push() {
-  printf '%s\n' "$1" >>"$RUN_LOG" 2>/dev/null || true
-  ACT+=("$1")
+  # $2="collapse" enables the keyed in-place update (used for STEP OUTPUT only;
+  # log() lines always append verbatim).
+  local line="$1"
+  # Progress bars redraw with \r; without a tty many tools still emit them.
+  # Keep only the final overwrite segment so one logical line stays one line.
+  case "$line" in *$'\r'*) line="${line##*$'\r'}" ;; esac
+  printf '%s\n' "$line" >>"$RUN_LOG" 2>/dev/null || true
+  if [ "${2:-}" = "collapse" ]; then
+    # Keyed in-place update: docker/apt style output emits hundreds of
+    # "<key>: <changing detail>" lines (layer pulls, "overall progress: …",
+    # apt "Get:N …"). If a visible row already carries this <key>, OVERWRITE it
+    # so each key becomes one live-updating row instead of a scrolling flood.
+    # The run log above keeps every raw line — only the display collapses.
+    local k="${line%%:*}" i
+    if [ "$k" != "$line" ] && [ -n "$k" ]; then
+      for (( i=${#ACT[@]}-1; i>=0; i-- )); do
+        if [ "${ACT[$i]%%:*}" = "$k" ]; then ACT[$i]="$line"; return 0; fi
+      done
+    fi
+  fi
+  ACT+=("$line")
   while [ "${#ACT[@]}" -gt "$ACT_MAX" ]; do ACT=("${ACT[@]:1}"); done
 }
 # Repaint the entire frame from state. Absolute-addressed, each row cleared.
@@ -302,11 +345,9 @@ _ui_render() {
     rw=$(( UI_CW>18 ? UI_CW-18 : 4 )); _set_rule "$rw"
     f+="${E}[K${UI_MARGIN}${E}[38;5;53m─ ${E}[38;5;219mdeploying apps ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
     if [ "${#APP_ORDER[@]}" -eq 0 ]; then
-      # No snapshot yet — show the intro / recent activity lines.
-      for ((i=0;i<ACT_MAX;i++)); do
-        line="${ACT[$i]:-}"
-        f+="${E}[K${UI_MARGIN}${E}[38;5;245m${line:0:$((UI_CW-1))}${E}[0m"$'\n'
-      done
+      # No snapshot yet — show the intro / recent activity lines, contained.
+      _set_box "${STEP_TITLE:-deploying}"
+      f+="$_BOX_OUT"
     else
       # Row budget so the frame never exceeds the terminal (no scroll): rows are
       # header(4) + summary(1) + divider(1) + footer(1) + safety(1) = 8.
@@ -350,15 +391,13 @@ _ui_render() {
       printf -v namep '%-42s' "$name"
       f+="${E}[K${UI_MARGIN}${icon} ${col}${namep}${E}[0m ${sec}"$'\n'
     done
-    hdr=activity
-    rw=$(( UI_CW>14 ? UI_CW-14 : 4 )); _set_rule "$rw"
-    f+="${E}[K${UI_MARGIN}${E}[38;5;53m─ ${E}[38;5;219m${hdr} ${E}[38;5;53m${_RULE_OUT}${E}[0m"$'\n'
-    for ((i=0;i<ACT_MAX;i++)); do
-      line="${ACT[$i]:-}"
-      f+="${E}[K${UI_MARGIN}${E}[38;5;245m${line:0:$((UI_CW-1))}${E}[0m"$'\n'
-    done
+    _set_box "${STEP_TITLE:-activity}"
+    f+="$_BOX_OUT"
   fi
   f+="${E}[J"
+  # NOTE the trailing `|| true` on the write: after a hangup the pty is gone and
+  # printf gets EIO — under set -e that would kill whichever shell rendered
+  # (e.g. _stream's reader) even though the run itself must keep going headless.
   if [ "${UI_BIG:-0}" = 1 ]; then
     # DEC double-width is a per-LINE attribute (reset each line), so emit ESC # 6
     # at the start of every row: right after each newline, and after the initial
@@ -367,7 +406,7 @@ _ui_render() {
     f="${f//$'\n'/$'\n'${DWL}}"
     f="${E}[H${DWL}${f#${E}\[H}"
   fi
-  printf '%s' "$f"
+  printf '%s' "$f" 2>/dev/null || true
 }
 _ui_init() {
   [ "$UI_RICH" = 1 ] || return 0
@@ -443,24 +482,32 @@ _stream() {
   # rest of the piped script, so bash hits EOF mid-run and exits silently right
   # after the deploy — no error, no step 14. Detaching the child's stdin keeps
   # the pipe intact so bash reads the whole script.
+  # `trap '' HUP` + exec: the child runs with SIGHUP IGNORED (inherited across
+  # exec), so an SSH drop that hangs up our process group cannot kill the step
+  # command mid-flight — it keeps running and writing; _on_hup keeps this shell
+  # alive to read it. Ctrl-C (SIGINT) still reaches the child normally.
   if [ "$UI_RICH" = 1 ]; then
     local rc n=0 last="" dup=0
-    "$@" </dev/null 2>&1 | while IFS= read -r _line; do
+    # The READER runs as a pipeline subshell, where traps reset to default — a
+    # hangup would kill it, and the (HUP-immune) child would then die of
+    # SIGPIPE on its next write. Trap HUP in the reader to just stop rendering
+    # (UI_RICH=0): it keeps reading and logging, the child keeps running.
+    ( trap '' HUP; exec "$@" ) </dev/null 2>&1 | { trap 'UI_RICH=0' HUP; while IFS= read -r _line; do
       if [ "$_line" = "$last" ]; then
         dup=$((dup+1))
         [ "${#ACT[@]}" -gt 0 ] && ACT[$(( ${#ACT[@]}-1 ))]="$_line (×$((dup+1)))"
         printf '%s (×%d)\n' "$_line" "$((dup+1))" >>"$RUN_LOG" 2>/dev/null || true
       else
-        _ui_push "$_line"; last="$_line"; dup=0
+        _ui_push "$_line" collapse; last="$_line"; dup=0
       fi
       n=$((n+1)); [ $(( n % 2 )) -eq 0 ] && _ui_render
       :
-    done
+    done; }
     rc=${PIPESTATUS[0]}
     _ui_render
     return "$rc"
   else
-    "$@" </dev/null
+    ( trap '' HUP; exec "$@" ) </dev/null
   fi
 }
 
@@ -471,10 +518,10 @@ _stream() {
 # The command's own output is discarded; pair it with a log() line first to
 # give the activity panel context. Falls back to a plain silent run.
 _run() {
-  if [ "$UI_RICH" != 1 ]; then "$@" </dev/null >/dev/null 2>&1; return $?; fi
+  if [ "$UI_RICH" != 1 ]; then ( trap '' HUP; exec "$@" ) </dev/null >/dev/null 2>&1; return $?; fi
   ( while :; do _ui_render; _nap 0.5; done ) &
   local _tk=$!
-  "$@" </dev/null >/dev/null 2>&1; local _rc=$?
+  ( trap '' HUP; exec "$@" ) </dev/null >/dev/null 2>&1; local _rc=$?
   kill "$_tk" 2>/dev/null || true; wait "$_tk" 2>/dev/null || true
   _ui_render
   return "$_rc"
@@ -489,14 +536,15 @@ _run() {
 # Runs the child via a FIFO so we still get its real exit code from `wait`.
 _stream_apps() {
   APPS_PHASE=1
-  if [ "$UI_RICH" != 1 ]; then "$@" </dev/null; return $?; fi
+  if [ "$UI_RICH" != 1 ]; then ( trap '' HUP; exec "$@" ) </dev/null; return $?; fi
   local fifo rc pid _line rs
   fifo="$(mktemp -u 2>/dev/null)" || fifo=""
   if [ -z "$fifo" ] || ! mkfifo "$fifo" 2>/dev/null; then
     # No FIFO available — fall back to the normal streamer (still ticks on output).
     _stream "$@"; return $?
   fi
-  "$@" </dev/null >"$fifo" 2>&1 &
+  # HUP-immune like _stream: an SSH drop must not kill the deploy child.
+  ( trap '' HUP; exec "$@" ) </dev/null >"$fifo" 2>&1 &
   pid=$!
   exec {AFD}<"$fifo"
   # Both ends are open now (the writer's open rendezvoused with this read-open),
@@ -508,7 +556,7 @@ _stream_apps() {
       case "$_line" in
         @APP*) _apps_update "$_line" ;;
         "")    : ;;
-        *)     _ui_push "$_line" ;;
+        *)     _ui_push "$_line" collapse ;;
       esac
     else
       rs=$?
@@ -651,6 +699,23 @@ _on_signal() {
     "${STEP_NO:-0}" "$STEP_TOTAL" "${STEP_TITLE:-}" >&2
   exit 130
 }
+# SIGHUP = the terminal went away (SSH drop, closed window) — NOT a request to
+# stop. Losing the VIEW must not kill a 40-minute deploy: demote to headless
+# (all further output appends to the run log) and keep provisioning. The
+# operator re-attaches with `tail -f $RUN_LOG`. Pairs with (a) the piped-run
+# re-exec in preflight — without it a dropped `curl | bash` loses the script
+# text itself — and (b) the retry-after-hangup in _stream/_run/_stream_apps,
+# because the SAME hangup also SIGHUPs the step command running in our
+# process group.
+_HUP_SEEN=0
+_on_hup() {
+  _HUP_SEEN=1
+  UI_RICH=0; UI_ALT=0; HOLD=0
+  exec >>"$RUN_LOG" 2>&1 </dev/null
+  printf '\n▲ terminal hung up at step %s/%s (%s) — continuing HEADLESS; follow with: tail -f %s\n' \
+    "${STEP_NO:-0}" "${STEP_TOTAL:-14}" "${STEP_TITLE:-preflight}" "$RUN_LOG"
+}
+trap _on_hup HUP
 trap _ui_reset EXIT
 trap _on_err ERR
 trap _on_signal INT TERM
@@ -659,6 +724,32 @@ trap _ui_winch WINCH
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+# But FIRST: if the script is being read from a PIPE (curl … | sudo bash), its
+# source is the ssh session itself — bash reads it incrementally, so if the
+# connection drops, curl dies and the REST OF THE SCRIPT never arrives: bash
+# stops silently mid-run and no trap can help. Materialize the repo on disk and
+# re-exec from the file before doing anything else; from that point on a dead
+# terminal only costs the view (see _on_hup), never the run. Detect the piped
+# form by $0: a file path means we're already running from disk.
+case "${0##*/}" in
+  bash|sh|dash|-bash) _PIPED=1 ;;
+  *) [ -f "$0" ] && _PIPED=0 || _PIPED=1 ;;
+esac
+if [ "$_PIPED" = 1 ]; then
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    git -C "$INSTALL_DIR" fetch -q --depth 1 origin main 2>/dev/null \
+      && git -C "$INSTALL_DIR" reset --hard -q FETCH_HEAD 2>/dev/null || true
+  else
+    command -v git >/dev/null 2>&1 \
+      || { apt-get update -y >/dev/null 2>&1 || true; apt-get install -y git >/dev/null 2>&1 || true; }
+    git clone -q --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || true
+  fi
+  if [ -f "$INSTALL_DIR/install.sh" ]; then
+    exec bash "$INSTALL_DIR/install.sh" "$@"
+  fi
+  # Clone failed (no network/git): continue from the pipe — the install still
+  # works, it just loses drop-immunity until the preflight clone succeeds.
+fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --domain)          DOMAIN="$2"; shift 2 ;;
