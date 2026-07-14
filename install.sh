@@ -230,12 +230,19 @@ _ui_size() {
   UI_COLS="$( tput cols  2>/dev/null || echo "${COLUMNS:-80}" )"
   [ "$UI_ROWS" -ge 12 ] 2>/dev/null || UI_ROWS=24
   [ "$UI_COLS" -ge 40 ] 2>/dev/null || UI_COLS=80
-  # Rows: header(4) + checklist(STEP_TOTAL) + box borders(2) + safety(2) =
-  # fixed; the rest is the contained live-output box, clamped so the frame
-  # never overflows a short terminal (24-row console → 3 content rows).
-  ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 4 ))
+  # The live-output box gets every row the frame doesn't need — PHASE-AWARE:
+  # in the app-deploy phase the 14-step checklist is collapsed to one line, so
+  # budgeting for it would waste ~STEP_TOTAL rows exactly when the operator
+  # watches the box longest. Setup: header(4) + checklist + borders(2) +
+  # safety(2). Apps: header(5, dual bars) + hub(1) + divider(1) + borders(2) +
+  # safety(1). Clamped so a 24-row console still fits (3 content rows).
+  if [ "${APPS_PHASE:-0}" = 1 ]; then
+    ACT_MAX=$(( UI_ROWS - 10 ))
+  else
+    ACT_MAX=$(( UI_ROWS - 4 - STEP_TOTAL - 4 ))
+  fi
   [ "$ACT_MAX" -lt 3 ]  && ACT_MAX=3
-  [ "$ACT_MAX" -gt 16 ] && ACT_MAX=16
+  [ "$ACT_MAX" -gt 24 ] && ACT_MAX=24
   # Big mode (--big / BIG=1): render every row with DEC double-width (ESC # 6),
   # so the text is 2x wider = bigger + more legible on a large terminal. A
   # double-width glyph occupies TWO cells, so we lay everything out against half
@@ -593,6 +600,7 @@ _run() {
 # Runs the child via a FIFO so we still get its real exit code from `wait`.
 _stream_apps() {
   APPS_PHASE=1
+  _ui_size   # phase-aware row budget: the collapsed checklist frees rows for the box
   if [ "$UI_RICH" != 1 ]; then ( trap '' HUP; exec "$@" ) </dev/null; return $?; fi
   local fifo rc pid _line rs
   fifo="$(mktemp -u 2>/dev/null)" || fifo=""
