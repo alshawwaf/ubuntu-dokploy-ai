@@ -318,25 +318,38 @@ _ui_render() {
   printf -v pad '%*s' "$mid" ''
   warns=""; [ "${#WARNINGS[@]}" -gt 0 ] && warns="   ${E}[38;5;214m⚠ ${#WARNINGS[@]}${E}[0m"
   _spin; _set_elapsed _EL
-  # In the app-deploy phase the big bar + header counter track apps coming up
-  # (the thing actually progressing); otherwise they track setup steps.
-  if [ "$APPS_PHASE" = 1 ] && [ "${#APP_ORDER[@]}" -gt 0 ]; then
-    _apps_counts
-    pct=$(( APPS_TOTAL>0 ? APPS_UP*100/APPS_TOTAL : 0 ))
-    _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw"
-    countseg="${E}[38;5;120m▣ ${APPS_UP}/${APPS_TOTAL} apps${E}[0m"
-  else
-    pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
-    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw"
-    countseg="${E}[38;5;120m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"
-  fi
   # Build the WHOLE frame in one string (raw ESC bytes) and write it with ONE
   # printf — no $() subshell forks and one terminal write, so the ticker stays
   # on cadence even while a heavy step saturates the box.
   f="${E}[H"
   f+="${E}[K${UI_MARGIN}${E}[48;5;53;1;97m${brand}${pad}${E}[38;5;219m${badge} ${E}[0m"$'\n'
-  f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
-  f+="${E}[K${UI_MARGIN}${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m"$'\n'
+  if [ "$APPS_PHASE" = 1 ] && [ "${#APP_ORDER[@]}" -gt 0 ]; then
+    # ---- app-deploy phase: TWO bars — overall (setup steps) stays visible on
+    # top so total progress never disappears, and the phase bar underneath
+    # tracks the apps actually coming up. Labels keep them unambiguous.
+    _apps_counts
+    countseg="${E}[38;5;120m▣ ${APPS_UP}/${APPS_TOTAL} apps${E}[0m"
+    f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
+    # NB: two different (done,total,width) tuples per frame defeat _set_bar's
+    # single-slot memo, so both bars rebuild each tick — pure string work,
+    # fork-free, negligible at 1-2 fps.
+    # Reserve room for the row's full chrome: label(9) + pct(≤5) + counter(≤9)
+    # + separators — 18 beyond the plain bar row — so the line never exceeds
+    # the content width (BIG mode doubles every cell, so overflow would wrap).
+    local barw2=$(( barw - 18 )); [ "$barw2" -lt 10 ] && barw2=10
+    pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
+    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw2"
+    f+="${E}[K${UI_MARGIN}${E}[38;5;244moverall ${E}[0m ${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m ${E}[38;5;240m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"$'\n'
+    pct=$(( APPS_TOTAL>0 ? APPS_UP*100/APPS_TOTAL : 0 ))
+    _set_bar "$APPS_UP" "$APPS_TOTAL" "$barw2"
+    f+="${E}[K${UI_MARGIN}${E}[38;5;244mapps    ${E}[0m ${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m ${E}[38;5;240m▣ ${APPS_UP}/${APPS_TOTAL}${E}[0m"$'\n'
+  else
+    pct=$(( STEP_TOTAL>0 ? STEP_DONE*100/STEP_TOTAL : 0 ))
+    _set_bar "$STEP_DONE" "$STEP_TOTAL" "$barw"
+    countseg="${E}[38;5;120m✓ ${STEP_DONE}/${STEP_TOTAL}${E}[0m"
+    f+="${E}[K${UI_MARGIN}${E}[38;5;45m${DOMAIN:-?}${E}[38;5;240m · ${E}[38;5;250m${UI_HOST}${E}[38;5;240m · ${E}[38;5;244m${UI_OS}${E}[0m    ${E}[38;5;213m◷${E}[0m ${E}[1;97m${_EL}${E}[0m   ${countseg}${warns}"$'\n'
+    f+="${E}[K${UI_MARGIN}${_BAR_OUT} ${E}[1;38;5;219m${pct}%${E}[0m"$'\n'
+  fi
   f+="${E}[K"$'\n'
   if [ "$APPS_PHASE" = 1 ]; then
     # ---- setup checklist collapses to one line; the live app board takes over ----
@@ -353,8 +366,9 @@ _ui_render() {
       f+="$_BOX_OUT"
     else
       # Row budget so the frame never exceeds the terminal (no scroll): rows are
-      # header(4) + summary(1) + divider(1) + footer(1) + safety(1) = 8.
-      avail=$(( UI_ROWS - 8 )); [ "$avail" -lt 3 ] && avail=3
+      # header(5: banner+info+2 bars+blank) + summary(1) + divider(1) +
+      # footer(1) + safety(1) = 9.
+      avail=$(( UI_ROWS - 9 )); [ "$avail" -lt 3 ] && avail=3
       # When truncating, one row is spent on the "… and N more" line, so cap the
       # app rows one lower — otherwise the footer's trailing newline lands on the
       # very bottom row and scrolls the alt-screen (corrupting the frame).
