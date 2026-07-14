@@ -399,6 +399,7 @@ Database ports bind to `127.0.0.1` only — never `0.0.0.0`. Services talk over 
 | `--project` | no | `Agentic Demos` | Dokploy project name |
 | `--app` | no | — | Only process this single app (by `name`) |
 | `--tier` | no | `all` | Only deploy apps in this tier: `core` (hub + light), `heavy` (LLM/agentic), or `all`. Read from each config entry's `"tier"` (absent = `core`) |
+| `--no-purge` | no | off | Don't clean-slate the environment first — ADD this tier to what's already deployed. **Required on the second/heavy wave**, otherwise it deletes the first wave's apps |
 | `--skip-harden` | no | off | Skip the built-in `harden_server` step |
 | `--clean` | no | off | Fresh rebuild (delete project/servers first) |
 
@@ -423,7 +424,7 @@ Set by `install.sh`; useful for laptop runs too.
 | `NO_RICH_UI` | Set to `1` to force plain output (same as `--plain`) |
 | `HOLD` / `UI_HOLD_TIMEOUT` | `HOLD=0` skips the "press a key to close" hold at the end; `UI_HOLD_TIMEOUT` bounds it (default `600`s). Auto-skipped in CI / when there's no TTY |
 | `RUN_LOG` | Install log path (default `/var/log/dokploy-ai-install.log`) |
-| `VERIFY_TIMEOUT` / `VERIFY_CORE_TIMEOUT` / `VERIFY_INTERVAL` | Heavy-wave / core-wave verification timeout and poll interval (defaults `2700`s / `900`s / `3`s) |
+| `VERIFY_TIMEOUT` / `VERIFY_INTERVAL` | Full-board verification timeout and poll interval (defaults `2700`s / `3`s). One verify pass covers both tiers; `VERIFY_CORE_TIMEOUT` is retired |
 | `CLOUDFLARE_API_TOKEN` | *(tunnel)* Cloudflare API token; scopes: Account>Cloudflare Tunnel>Edit, Zone>DNS>Edit, Zone>Zone>Read |
 | `CLOUDFLARE_ACCOUNT_ID` | *(tunnel)* Cloudflare account id |
 | `CLOUDFLARE_TUNNEL_NAME` | *(tunnel)* named tunnel to create/reuse (default `devhub`) |
