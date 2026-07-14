@@ -270,16 +270,23 @@ _ui_size() {
   # (ESC[6n -> ESC[<rows>;<cols>R) — the answer traverses any pty chain.
   # Only meaningful once the alt screen is up (the cursor jump is invisible
   # there); 0.3s timeout falls back to the tput values (headless = no answer).
-  if [ "${UI_ALT:-0}" = 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  if [ "${UI_ALT:-0}" = 1 ] && [ "${_PROBE_STATE:-}" != "dead" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
     local _pr="" _pc="" _junk=""
     trap '' TTOU TTIN
     if printf '\033[s\033[999;999H\033[6n\033[u' >/dev/tty 2>/dev/null; then
-      IFS='[;' read -rsd R -t 0.3 _junk _pr _pc </dev/tty 2>/dev/null || true
+      IFS='[;' read -rsd R -t 0.6 _junk _pr _pc </dev/tty 2>/dev/null || true
     fi
     trap - TTOU TTIN
     case "${_pr}x${_pc}" in
-      *[!0-9x]*|x|*x|x*) : ;;   # non-numeric / empty — keep tput values
-      *) [ "$_pr" -ge 12 ] && [ "$_pc" -ge 40 ] && { UI_ROWS="$_pr"; UI_COLS="$_pc"; } ;;
+      *[!0-9x]*|x|*x|x*)
+        # No/garbled answer: NEVER probe again this run — a response that
+        # arrives after the timeout would sit unread in the tty buffer and
+        # spill onto the user's prompt at exit (seen live as ";188R").
+        # _ui_reset also drains the buffer as the backstop.
+        _PROBE_STATE="dead" ;;
+      *)
+        _PROBE_STATE="ok"
+        [ "$_pr" -ge 12 ] && [ "$_pc" -ge 40 ] && { UI_ROWS="$_pr"; UI_COLS="$_pc"; } ;;
     esac
   fi
   [ "$UI_ROWS" -ge 12 ] 2>/dev/null || UI_ROWS=24
@@ -579,6 +586,13 @@ _ui_reset() {
   # uninstall for 20+ minutes with a `stty echo` child stuck in state T. With
   # the job-control signals ignored, the tty write simply proceeds.
   trap '' TTOU TTIN
+  # Drain any pending tty input BEFORE handing the terminal back: a late
+  # size-probe answer (ESC[<r>;<c>R) or stray keys pressed during the run
+  # would otherwise be typed at the user's prompt the moment we exit.
+  local _drain _dn=0
+  while [ "$_dn" -lt 5 ] && IFS= read -rs -t 0.05 -n 200 _drain </dev/tty 2>/dev/null && [ -n "$_drain" ]; do
+    _dn=$((_dn+1))
+  done
   if [ -n "${_STTY_SAVE:-}" ]; then
     stty "$_STTY_SAVE" </dev/tty 2>/dev/null || stty sane </dev/tty 2>/dev/null || true
   else
