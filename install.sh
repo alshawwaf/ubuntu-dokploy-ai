@@ -27,6 +27,8 @@
 #   given. --yes skips the interactive confirmation.
 #
 set -Eeuo pipefail
+# Never block on a git credential prompt (private/missing repo): fail and move on.
+export GIT_TERMINAL_PROMPT=0
 
 # ---------------------------------------------------------------------------
 # Defaults / configuration (flags override; env vars are the fallback).
@@ -1359,7 +1361,7 @@ export DEBIAN_FRONTEND=noninteractive
 _stream apt-get update -y
 _stream apt-get install -y \
   python3 python3-requests python3-paramiko python3-yaml \
-  git curl ca-certificates ufw fail2ban unattended-upgrades
+  git curl ca-certificates ufw fail2ban unattended-upgrades openssh-server
 
 # Detect the public IP DNS should point at, and the default-route interface.
 detect_public_ip() {
