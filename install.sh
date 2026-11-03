@@ -1636,12 +1636,17 @@ APT::Periodic::Unattended-Upgrade "1";
 AUTOEOF
   systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
 
-  log "Hardening sshd (root: key-only; pubkey auth on)"
-  sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-  grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config
-  sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-  grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
-  systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  # Desktop / minimal installs may have no openssh-server, hence no sshd_config.
+  if [[ -f /etc/ssh/sshd_config ]]; then
+    log "Hardening sshd (root: key-only; pubkey auth on)"
+    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+    grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config
+    sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+    grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  else
+    warn "no /etc/ssh/sshd_config (openssh-server not installed); skipping sshd hardening."
+  fi
 
   log "Recording baseline user/authorized_keys audit"
   mkdir -p /etc/dokploy-ai
