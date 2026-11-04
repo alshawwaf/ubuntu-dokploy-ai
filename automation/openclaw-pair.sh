@@ -31,7 +31,11 @@ case "${1:-list}" in
   list)
     oc devices list ;;
   approve)
-    oc devices approve --latest ;;
+    # Current images only *preview* the request for --latest ("Approve this exact
+    # request with: … approve <id>"), so pull the id from that preview and approve it.
+    out="$(oc devices approve --latest 2>&1)"; echo "$out"
+    id="$(printf '%s' "$out" | grep -oE 'devices approve [0-9a-f-]{36}' | awk '{print $3}' | head -1)"
+    [ -z "$id" ] || oc devices approve "$id" ;;
   url)
     raw="$(oc dashboard --no-open 2>/dev/null | grep -oE 'https?://[^[:space:]]*#token=[^[:space:]]+' | head -1)"
     [ -n "$raw" ] || { echo "could not obtain a dashboard URL from the gateway" >&2; exit 1; }

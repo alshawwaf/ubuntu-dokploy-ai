@@ -27,6 +27,8 @@
 #   given. --yes skips the interactive confirmation.
 #
 set -Eeuo pipefail
+# Never block on a git credential prompt (private/missing repo): fail and move on.
+export GIT_TERMINAL_PROMPT=0
 
 # ---------------------------------------------------------------------------
 # Defaults / configuration (flags override; env vars are the fallback).
@@ -1359,7 +1361,7 @@ export DEBIAN_FRONTEND=noninteractive
 _stream apt-get update -y
 _stream apt-get install -y \
   python3 python3-requests python3-paramiko python3-yaml \
-  git curl ca-certificates ufw fail2ban unattended-upgrades
+  git curl ca-certificates ufw fail2ban unattended-upgrades openssh-server
 
 # Detect the public IP DNS should point at, and the default-route interface.
 detect_public_ip() {
@@ -1636,12 +1638,17 @@ APT::Periodic::Unattended-Upgrade "1";
 AUTOEOF
   systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
 
-  log "Hardening sshd (root: key-only; pubkey auth on)"
-  sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-  grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config
-  sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-  grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
-  systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  # Desktop / minimal installs may have no openssh-server, hence no sshd_config.
+  if [[ -f /etc/ssh/sshd_config ]]; then
+    log "Hardening sshd (root: key-only; pubkey auth on)"
+    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+    grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config
+    sed -i 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+    grep -q '^PubkeyAuthentication' /etc/ssh/sshd_config || echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  else
+    warn "no /etc/ssh/sshd_config (openssh-server not installed); skipping sshd hardening."
+  fi
 
   log "Recording baseline user/authorized_keys audit"
   mkdir -p /etc/dokploy-ai

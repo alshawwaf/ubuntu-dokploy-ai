@@ -17,6 +17,11 @@ services:
       - |
         printf '%s' '{"gateway":{"controlUi":{"allowedOrigins":["https://claw.{{DOMAIN}}","https://hub.{{DOMAIN}}"]}}}' \
           | node dist/index.js config patch --stdin || true
+        # Current images 403 every proxied request ("proxy_attribution_required") unless the
+        # proxy is in gateway.trustedProxies. Traefik reaches us over dokploy-network, so trust
+        # this container's own subnet(s) — derived at start, since the subnet varies per host.
+        node -e 'const os=require("os");const s=[];for(const l of Object.values(os.networkInterfaces()).flat())if(l.family==="IPv4"&&!l.internal){const a=l.address.split(".").map(Number),m=l.netmask.split(".").map(Number);s.push(a.map((x,i)=>x&m[i]).join(".")+"/"+l.cidr.split("/")[1])}console.log(JSON.stringify({gateway:{trustedProxies:s}}))' \
+          | node dist/index.js config patch --stdin || true
         exec node dist/index.js gateway --port 18789 --bind lan --auth token --allow-unconfigured
     environment:
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
